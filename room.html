@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0, user-scalable=no">
+<title>BS Battle - 대기실</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body class="room-page">
+
+<video class="bg-video" autoplay loop muted playsinline>
+  <source src="Videos/BS_BGM.mp4" type="video/mp4">
+</video>
+
+<main class="team-screen">
+  <h1 class="battle-banner">1대1 대전</h1>
+
+  <section class="team-block">
+    <ul id="my-row" class="team-row"></ul>
+  </section>
+
+  <section class="team-block">
+    <ul id="opponent-row" class="team-row"></ul>
+  </section>
+</main>
+
+<div id="unit-modal" class="modal hidden">
+  <div class="modal-box avatar-picker-box">
+    <h2>유닛 선택</h2>
+    <ul id="unit-picker-row" class="team-row avatar-scroll-row"></ul>
+  </div>
+</div>
+
+<button id="leave-btn" class="btn leave leave-btn-fixed">나가기</button>
+<button id="ready-btn" class="ready-btn">게임 준비</button>
+
+<div id="request-bar" class="request-bar hidden"></div>
+<div id="toast" class="toast"></div>
+
+<script src="js/no-zoom.js"></script>
+<script type="module" src="js/room.js"></script>
+</body>
+</html>
