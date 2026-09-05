@@ -3,6 +3,21 @@
 //         npm run release -- minor   (minor 버전 올림, 예: 1.0.0 -> 1.1.0)
 //         npm run release -- major   (major 버전 올림)
 const { execSync } = require("child_process");
+const fs = require("fs");
+
+// PATH가 방금 설치된 gh.exe를 아직 못 읽는 경우(터미널을 새로 열어도 캐시된 환경변수를 쓰는 경우 등)를
+// 대비해, PATH에서 못 찾으면 기본 설치 경로를 직접 찾아 쓴다.
+function resolveGh() {
+  try {
+    execSync("gh --version", { stdio: "ignore" });
+    return "gh";
+  } catch (e) {
+    const fallback = `${process.env.ProgramFiles || "C:\\Program Files"}\\GitHub CLI\\gh.exe`;
+    if (fs.existsSync(fallback)) return `"${fallback}"`;
+    throw new Error("gh(GitHub CLI)를 찾을 수 없습니다. 설치 후 컴퓨터를 재시작해보세요.");
+  }
+}
+const gh = resolveGh();
 
 function run(cmd, opts = {}) {
   console.log(`\n$ ${cmd}`);
@@ -31,7 +46,7 @@ if (status) {
 // 2) gh CLI 로그인 토큰을 electron-builder가 쓰는 GH_TOKEN 환경변수로 전달
 let ghToken;
 try {
-  ghToken = runCapture("gh auth token");
+  ghToken = runCapture(`${gh} auth token`);
 } catch (e) {
   console.error("GitHub CLI 로그인이 필요합니다: gh auth login");
   process.exit(1);
