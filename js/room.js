@@ -98,11 +98,7 @@ function watchRoom() {
 
     // 둘 다 배치 화면으로 넘어가야 하는 시점 -> 대기실은 이제 볼 일이 없으니 바로 이동시킨다.
     if (room.battle) {
-      if (currentDisconnectRef) {
-        onDisconnect(currentDisconnectRef).cancel();
-        currentDisconnectRef = null;
-      }
-      window.location.href = `battle.html?room=${roomId}`;
+      goToBattle();
       return;
     }
 
@@ -129,6 +125,21 @@ function watchRoom() {
     const field = currentIsHost ? "hostReady" : "guestReady";
     update(roomRef, { [field]: !myReady });
   });
+}
+
+let navigatingToBattle = false;
+// onDisconnect 취소가 서버에 실제로 반영되기 전에 페이지 이동으로 소켓이 끊기면,
+// 취소 대상이었던 예전 onDisconnect(호스트 승계/상태 초기화 등)가 그대로 발동해버려
+// 방이 리셋되고 둘 다 로비로 튕기는 문제가 있었다. cancel()이 끝난 뒤에만 이동한다.
+async function goToBattle() {
+  if (navigatingToBattle) return;
+  navigatingToBattle = true;
+
+  if (currentDisconnectRef) {
+    await onDisconnect(currentDisconnectRef).cancel();
+    currentDisconnectRef = null;
+  }
+  window.location.href = `battle.html?room=${roomId}`;
 }
 
 function unitAt(units, i) {

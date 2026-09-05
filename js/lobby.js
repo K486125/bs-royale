@@ -302,8 +302,10 @@ createRoomBtn.addEventListener("click", async () => {
   });
   // 생성 직후 탭이 닫히는 극히 짧은 순간을 대비한 안전장치.
   // 팀 화면(room.js)이 뜨면 그쪽에서 곧바로 자체 onDisconnect를 다시 건다.
-  onDisconnect(roomRef).remove();
-  onDisconnect(roomRef).cancel();
+  // cancel()이 서버에 반영되기 전에 페이지를 이동하면 방금 만든 remove()가 그대로 발동해
+  // 방이 곧바로 삭제돼버릴 수 있어, 취소가 끝난 뒤에만 이동한다.
+  await onDisconnect(roomRef).remove();
+  await onDisconnect(roomRef).cancel();
 
   window.location.href = `room.html?room=${roomRef.key}`;
 });
@@ -326,6 +328,18 @@ async function requestJoin(roomId) {
   watchJoinedRoom(roomId);
 }
 
+let navigatingToJoinedRoom = false;
+// cancel()이 서버에 반영되기 전에 페이지를 이동하면 예약해둔 요청-정리(remove)가
+// 그대로 발동할 수 있어, 취소가 끝난 뒤에만 이동한다.
+async function goToJoinedRoom(roomId) {
+  if (navigatingToJoinedRoom) return;
+  navigatingToJoinedRoom = true;
+
+  redirected = true;
+  await onDisconnect(ref(db, `rooms/${roomId}/requests/${myUid}`)).cancel();
+  window.location.href = `room.html?room=${roomId}`;
+}
+
 let joinedRoomUnsub = null;
 function watchJoinedRoom(roomId) {
   const roomRef = ref(db, `rooms/${roomId}`);
@@ -337,9 +351,7 @@ function watchJoinedRoom(roomId) {
       return;
     }
     if (room.guestUid === myUid) {
-      onDisconnect(ref(db, `rooms/${roomId}/requests/${myUid}`)).cancel();
-      redirected = true;
-      window.location.href = `room.html?room=${roomId}`;
+      goToJoinedRoom(roomId);
     } else if (!room.requests || !(myUid in room.requests)) {
       showToast("참가 요청이 거절되었거나 다른 플레이어가 참가했습니다.");
       resetJoinState();
