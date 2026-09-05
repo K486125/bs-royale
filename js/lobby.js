@@ -395,4 +395,17 @@ if (window.bsApi && window.bsApi.onUpdateStatus) {
   });
 }
 
-initNickname();
+// 앱을 처음 켰을 때만 로딩 화면을 잠깐 보여준 뒤 닉네임 입력 화면으로 넘어간다.
+// (방에서 로비로 돌아오는 경우에는 이미 닉네임이 있으므로 그냥 바로 보여준다)
+const appLoadingEl = document.getElementById("app-loading");
+const APP_LOADING_MS = 1500;
+
+if (myName) {
+  appLoadingEl.classList.add("hidden");
+  initNickname();
+} else {
+  setTimeout(() => {
+    appLoadingEl.classList.add("hidden");
+    initNickname();
+  }, APP_LOADING_MS);
+}

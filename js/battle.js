@@ -197,8 +197,8 @@ function renderSidebar(myPlacements) {
       + (isPlaced ? " placed" : "")
       + (selectedSlot === i ? " selected" : "");
     card.innerHTML = `
-      <div class="portrait-frame ${unitFrameClass(file)}">
-        <img class="card-portrait" src="${AVATAR_PATH}${file}" alt="">
+      <div class="unit-tile ${unitFrameClass(file)}">
+        <img src="${AVATAR_PATH}${file}" alt="">
       </div>
     `;
 
