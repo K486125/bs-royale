@@ -8,6 +8,7 @@
     "dev": "electron .",
     "dev2": "electron . --dual",
     "dist": "electron-builder --win",
+    "release": "node scripts/release.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],
@@ -20,6 +21,9 @@
   },
   "dependencies": {
     "electron-updater": "^6.8.9"
+  },
+  "overrides": {
+    "@noble/hashes": "1.8.0"
   },
   "build": {
     "appId": "com.zer0yale.bsroyale",
