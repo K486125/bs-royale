@@ -48,7 +48,8 @@
     "publish": {
       "provider": "github",
       "owner": "K486125",
-      "repo": "bs-royale"
+      "repo": "bs-royale",
+      "releaseType": "release"
     }
   }
 }
