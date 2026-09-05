@@ -6,7 +6,7 @@ import {
   setPersistence, browserSessionPersistence
 } from "https://www.gstatic.com/firebasejs/12.18.0/firebase-auth.js";
 import {
-  getDatabase, ref, update, onValue, onDisconnect, runTransaction
+  getDatabase, ref, update, onValue, onDisconnect, runTransaction, serverTimestamp
 } from "https://www.gstatic.com/firebasejs/12.18.0/firebase-database.js";
 
 const AVATAR_PATH = "BS_Plr_Icons/";
@@ -95,6 +95,21 @@ function watchRoom() {
     }
     currentIsHost = isHost;
     currentRoom = room;
+
+    // 둘 다 배치 화면으로 넘어가야 하는 시점 -> 대기실은 이제 볼 일이 없으니 바로 이동시킨다.
+    if (room.battle) {
+      if (currentDisconnectRef) {
+        onDisconnect(currentDisconnectRef).cancel();
+        currentDisconnectRef = null;
+      }
+      window.location.href = `battle.html?room=${roomId}`;
+      return;
+    }
+
+    // 둘 다 준비 완료되면 호스트가 대표로 배치 단계를 시작시킨다 (양쪽이 동시에 써서 충돌할 필요 없음).
+    if (isHost && room.hostReady && room.guestReady) {
+      update(roomRef, { battle: { phase: "loading", createdAt: serverTimestamp() } });
+    }
 
     renderTeamScreen(room, isHost);
     renderRequestBar(room, isHost);
@@ -340,7 +355,8 @@ function updateDisconnectHandling(room, isHost) {
         guestUnits: null,
         guestReady: false,
         playerCount: 1,
-        status: "waiting"
+        status: "waiting",
+        battle: null
       });
     } else {
       onDisconnect(roomRef).remove();
@@ -353,7 +369,8 @@ function updateDisconnectHandling(room, isHost) {
       guestUnits: null,
       guestReady: false,
       playerCount: 1,
-      status: "waiting"
+      status: "waiting",
+      battle: null
     });
   }
   currentDisconnectRef = roomRef;
@@ -395,6 +412,7 @@ async function leaveRoom(roomRef) {
       room.guestReady = false;
       room.playerCount = 1;
       room.status = "waiting";
+      room.battle = null;
       return room;
     }
 
