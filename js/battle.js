@@ -6,7 +6,7 @@ import {
   setPersistence, browserSessionPersistence
 } from "https://www.gstatic.com/firebasejs/12.18.0/firebase-auth.js";
 import {
-  getDatabase, ref, update, onValue, onDisconnect, serverTimestamp
+  getDatabase, ref, set, update, onValue, onDisconnect, runTransaction, serverTimestamp
 } from "https://www.gstatic.com/firebasejs/12.18.0/firebase-database.js";
 
 const AVATAR_PATH = "BS_Plr_Icons/";
@@ -37,7 +37,6 @@ const roomId = params.get("room");
 let myUid = null;
 let isHost = false;
 let leaving = false;
-let currentDisconnectRef = null;
 let currentRoom = null;
 let mapBuilt = false;
 
@@ -68,11 +67,15 @@ function showToast(msg) {
 
 function backToLobby(message) {
   if (message) showToast(message);
-  if (currentDisconnectRef) {
-    onDisconnect(currentDisconnectRef).cancel();
-    currentDisconnectRef = null;
-  }
   setTimeout(() => { window.location.href = "index.html"; }, message ? 1200 : 0);
+}
+
+let leavingBattle = false;
+// 전투가 사라졌을 뿐 방에는 그대로 속해 있는 상태 -> 로비가 아니라 대기실로 돌아간다.
+function backToRoom() {
+  if (leavingBattle) return;
+  leavingBattle = true;
+  window.location.href = `room.html?room=${roomId}`;
 }
 
 if (!roomId) {
@@ -97,7 +100,7 @@ function watchRoom() {
 
   onValue(roomRef, (snap) => {
     const room = snap.val();
-    if (leaving) return;
+    if (leaving || leavingBattle) return;
 
     if (!room) {
       backToLobby("상대방이 방을 나갔습니다. 로비로 돌아갑니다.");
@@ -112,27 +115,23 @@ function watchRoom() {
     }
     isHost = hostMatch;
 
+    currentRoom = room;
+    updatePresence(isHost);
+    watchOpponentPresence(room, isHost);
+
     if (!room.battle) {
-      // 배치 단계가 아직 시작 안 된 상태로 이 화면에 온 비정상 케이스 -> 대기실로.
-      backToLobby();
+      backToRoom();
       return;
     }
-
-    currentRoom = room;
 
     if (!mapBuilt) {
       buildMap();
       mapBuilt = true;
     }
 
-    updateDisconnectHandling(room);
     renderBattle(room);
 
     if (isHost) maybeAdvancePhase(room);
-  });
-
-  window.addEventListener("beforeunload", () => {
-    if (currentDisconnectRef) onDisconnect(currentDisconnectRef).cancel();
   });
 }
 
@@ -370,7 +369,9 @@ function renderPhaseVisibility(battle) {
 
   const elapsed = Date.now() - loadingStartedAt;
   if (elapsed < LOADING_MIN_MS) {
-    setTimeout(() => renderPhaseVisibility(currentRoom.battle), LOADING_MIN_MS - elapsed);
+    setTimeout(() => {
+      if (currentRoom && currentRoom.battle) renderPhaseVisibility(currentRoom.battle);
+    }, LOADING_MIN_MS - elapsed);
     return;
   }
   loadingOverlay.classList.add("hidden");
@@ -378,6 +379,7 @@ function renderPhaseVisibility(battle) {
 }
 
 // 호스트가 대표로 단계를 진행시킨다 (로딩 -> 배치, 둘 다 배치 완료 -> 카운트다운).
+let loadingAdvanceTimer = null;
 async function maybeAdvancePhase(room) {
   const battle = room.battle;
   if (!battle) return;
@@ -389,6 +391,13 @@ async function maybeAdvancePhase(room) {
         phase: "placing",
         placingStartedAt: serverTimestamp()
       });
+    } else if (!loadingAdvanceTimer) {
+      // 이 확인은 방 데이터가 바뀔 때(onValue)만 실행되는데, 로딩이 끝나기를 기다리는 동안에는
+      // 아무 변화도 없어서 영영 다시 확인되지 않는다. 시간이 되면 스스로 다시 확인한다.
+      loadingAdvanceTimer = setTimeout(() => {
+        loadingAdvanceTimer = null;
+        if (currentRoom) maybeAdvancePhase(currentRoom);
+      }, LOADING_MIN_MS - elapsed);
     }
   } else if (battle.phase === "placing" && battle.hostDone && battle.guestDone && !battle.countdownStartedAt) {
     await update(ref(db, `rooms/${roomId}/battle`), {
@@ -415,46 +424,83 @@ function renderBattle(room) {
   maybeAutoComplete(myPlacements);
 }
 
-// ---------- 연결 끊김 처리 (대기실과 동일한 규칙: 호스트 나가면 게스트가 승계, 아니면 대기 상태로 리셋) ----------
-function updateDisconnectHandling(room) {
-  const roomRef = ref(db, `rooms/${roomId}`);
+// ---------- 접속 상태 (대기실과 동일한 규칙) ----------
+// 끊길 때는 "나 접속 중" 표시만 끈다. 페이지 이동으로 잠깐 끊기는 것과 진짜 나간 것을
+// 구분하기 위해, 상대가 나갔는지는 남아있는 쪽이 몇 초 지켜본 뒤 판단한다.
+let presenceRole = null;
+function updatePresence(isHost) {
+  const role = isHost ? "host" : "guest";
+  if (presenceRole === role) return;
+  presenceRole = role;
 
-  if (currentDisconnectRef) {
-    onDisconnect(currentDisconnectRef).cancel();
-    currentDisconnectRef = null;
+  const onlineRef = ref(db, `rooms/${roomId}/${role}Online`);
+  set(onlineRef, true);
+  onDisconnect(onlineRef).set(false);
+
+  const seenRef = ref(db, `rooms/${roomId}/lastSeen`);
+  set(seenRef, serverTimestamp());
+  onDisconnect(seenRef).set(serverTimestamp());
+}
+
+const OPPONENT_GRACE_MS = 6000;
+let opponentGoneTimer = null;
+
+function watchOpponentPresence(room, isHost) {
+  const oppUid = isHost ? room.guestUid : room.hostUid;
+  const oppOnline = isHost ? room.guestOnline : room.hostOnline;
+
+  if (!oppUid || oppOnline !== false) {
+    clearTimeout(opponentGoneTimer);
+    opponentGoneTimer = null;
+    return;
   }
+  if (opponentGoneTimer) return;
+  opponentGoneTimer = setTimeout(() => {
+    opponentGoneTimer = null;
+    handleOpponentLeft();
+  }, OPPONENT_GRACE_MS);
+}
 
-  if (isHost) {
-    if (room.guestUid) {
-      onDisconnect(roomRef).update({
-        hostUid: room.guestUid,
-        hostName: room.guestName,
-        hostAvatar: room.guestAvatar,
-        hostUnits: room.guestUnits,
-        hostReady: false,
-        guestUid: null,
-        guestName: null,
-        guestAvatar: null,
-        guestUnits: null,
-        guestReady: false,
-        playerCount: 1,
-        status: "waiting",
-        battle: null
-      });
-    } else {
-      onDisconnect(roomRef).remove();
+async function handleOpponentLeft() {
+  await runTransaction(ref(db, `rooms/${roomId}`), (room) => {
+    if (!room) return room;
+
+    if (room.hostUid === myUid) {
+      if (room.guestOnline !== false) return;
+      clearGuest(room);
+      room.hostReady = false;
+      room.playerCount = 1;
+      room.status = "waiting";
+      room.battle = null;
+      return room;
     }
-  } else {
-    onDisconnect(roomRef).update({
-      guestUid: null,
-      guestName: null,
-      guestAvatar: null,
-      guestUnits: null,
-      guestReady: false,
-      playerCount: 1,
-      status: "waiting",
-      battle: null
-    });
-  }
-  currentDisconnectRef = roomRef;
+
+    if (room.guestUid === myUid) {
+      if (room.hostOnline !== false) return;
+      room.hostUid = myUid;
+      room.hostName = room.guestName;
+      room.hostAvatar = room.guestAvatar;
+      room.hostUnits = room.guestUnits;
+      room.hostReady = false;
+      room.hostOnline = true;
+      clearGuest(room);
+      room.playerCount = 1;
+      room.status = "waiting";
+      room.battle = null;
+      return room;
+    }
+
+    return room;
+  });
+
+  presenceRole = null;
+}
+
+function clearGuest(room) {
+  room.guestUid = null;
+  room.guestName = null;
+  room.guestAvatar = null;
+  room.guestUnits = null;
+  room.guestReady = false;
+  room.guestOnline = null;
 }

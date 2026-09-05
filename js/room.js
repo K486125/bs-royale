@@ -6,7 +6,7 @@ import {
   setPersistence, browserSessionPersistence
 } from "https://www.gstatic.com/firebasejs/12.18.0/firebase-auth.js";
 import {
-  getDatabase, ref, update, onValue, onDisconnect, runTransaction, serverTimestamp
+  getDatabase, ref, set, update, onValue, onDisconnect, runTransaction, serverTimestamp
 } from "https://www.gstatic.com/firebasejs/12.18.0/firebase-database.js";
 
 const AVATAR_PATH = "BS_Plr_Icons/";
@@ -28,7 +28,6 @@ const params = new URLSearchParams(location.search);
 const roomId = params.get("room");
 
 let myUid = null;
-let currentDisconnectRef = null;
 let leaving = false;
 let currentIsHost = false;
 let currentRoom = null;
@@ -51,10 +50,6 @@ function showToast(msg) {
 
 function backToLobby(message) {
   if (message) showToast(message);
-  if (currentDisconnectRef) {
-    onDisconnect(currentDisconnectRef).cancel();
-    currentDisconnectRef = null;
-  }
   setTimeout(() => { window.location.href = "index.html"; }, message ? 1200 : 0);
 }
 
@@ -80,7 +75,7 @@ function watchRoom() {
 
   onValue(roomRef, (snap) => {
     const room = snap.val();
-    if (leaving) return;
+    if (leaving || navigatingToBattle) return;
 
     if (!room) {
       backToLobby("상대방이 방을 나갔습니다. 로비로 돌아갑니다.");
@@ -96,6 +91,9 @@ function watchRoom() {
     currentIsHost = isHost;
     currentRoom = room;
 
+    updatePresence(isHost);
+    watchOpponentPresence(room, isHost);
+
     // 둘 다 배치 화면으로 넘어가야 하는 시점 -> 대기실은 이제 볼 일이 없으니 바로 이동시킨다.
     if (room.battle) {
       goToBattle();
@@ -109,7 +107,6 @@ function watchRoom() {
 
     renderTeamScreen(room, isHost);
     renderRequestBar(room, isHost);
-    updateDisconnectHandling(room, isHost);
   });
 
   leaveBtn.addEventListener("click", () => leaveRoom(roomRef));
@@ -128,17 +125,9 @@ function watchRoom() {
 }
 
 let navigatingToBattle = false;
-// onDisconnect 취소가 서버에 실제로 반영되기 전에 페이지 이동으로 소켓이 끊기면,
-// 취소 대상이었던 예전 onDisconnect(호스트 승계/상태 초기화 등)가 그대로 발동해버려
-// 방이 리셋되고 둘 다 로비로 튕기는 문제가 있었다. cancel()이 끝난 뒤에만 이동한다.
-async function goToBattle() {
+function goToBattle() {
   if (navigatingToBattle) return;
   navigatingToBattle = true;
-
-  if (currentDisconnectRef) {
-    await onDisconnect(currentDisconnectRef).cancel();
-    currentDisconnectRef = null;
-  }
   window.location.href = `battle.html?room=${roomId}`;
 }
 
@@ -344,47 +333,88 @@ async function declineRequest(guestUid) {
   await update(ref(db, `rooms/${roomId}/requests`), { [guestUid]: null });
 }
 
-function updateDisconnectHandling(room, isHost) {
-  const roomRef = ref(db, `rooms/${roomId}`);
+// 연결이 끊길 때 방을 직접 뜯어고치면(호스트 승계/초기화 등) 페이지 이동으로 잠깐 끊기는 것과
+// 진짜 나간 것을 구분할 수 없다. 그래서 끊길 때는 "나 접속 중" 표시만 끄고,
+// 상대가 실제로 나갔는지는 남아있는 쪽이 잠시 지켜본 뒤(GRACE) 판단한다.
+let presenceRole = null;
+function updatePresence(isHost) {
+  const role = isHost ? "host" : "guest";
+  if (presenceRole === role) return;
+  presenceRole = role;
 
-  if (currentDisconnectRef) {
-    onDisconnect(currentDisconnectRef).cancel();
-    currentDisconnectRef = null;
+  const onlineRef = ref(db, `rooms/${roomId}/${role}Online`);
+  set(onlineRef, true);
+  onDisconnect(onlineRef).set(false);
+
+  const seenRef = ref(db, `rooms/${roomId}/lastSeen`);
+  set(seenRef, serverTimestamp());
+  onDisconnect(seenRef).set(serverTimestamp());
+}
+
+// 페이지 이동으로 잠깐 끊기는 시간(1초 안팎)보다 넉넉히 길게 잡는다.
+const OPPONENT_GRACE_MS = 6000;
+let opponentGoneTimer = null;
+
+function watchOpponentPresence(room, isHost) {
+  const oppUid = isHost ? room.guestUid : room.hostUid;
+  const oppOnline = isHost ? room.guestOnline : room.hostOnline;
+
+  if (!oppUid || oppOnline !== false) {
+    clearTimeout(opponentGoneTimer);
+    opponentGoneTimer = null;
+    return;
   }
+  if (opponentGoneTimer) return;
+  opponentGoneTimer = setTimeout(() => {
+    opponentGoneTimer = null;
+    handleOpponentLeft();
+  }, OPPONENT_GRACE_MS);
+}
 
-  if (isHost) {
-    if (room.guestUid) {
-      onDisconnect(roomRef).update({
-        hostUid: room.guestUid,
-        hostName: room.guestName,
-        hostAvatar: room.guestAvatar,
-        hostUnits: room.guestUnits,
-        hostReady: false,
-        guestUid: null,
-        guestName: null,
-        guestAvatar: null,
-        guestUnits: null,
-        guestReady: false,
-        playerCount: 1,
-        status: "waiting",
-        battle: null
-      });
-    } else {
-      onDisconnect(roomRef).remove();
+// 상대가 확실히 나갔을 때, 남아있는 쪽이 방을 정리한다.
+async function handleOpponentLeft() {
+  await runTransaction(ref(db, `rooms/${roomId}`), (room) => {
+    if (!room) return room;
+
+    if (room.hostUid === myUid) {
+      if (room.guestOnline !== false) return; // 그 사이 돌아옴 -> 취소
+      clearGuest(room);
+      room.hostReady = false;
+      room.playerCount = 1;
+      room.status = "waiting";
+      room.battle = null;
+      return room;
     }
-  } else {
-    onDisconnect(roomRef).update({
-      guestUid: null,
-      guestName: null,
-      guestAvatar: null,
-      guestUnits: null,
-      guestReady: false,
-      playerCount: 1,
-      status: "waiting",
-      battle: null
-    });
-  }
-  currentDisconnectRef = roomRef;
+
+    if (room.guestUid === myUid) {
+      if (room.hostOnline !== false) return; // 그 사이 돌아옴 -> 취소
+      room.hostUid = myUid;
+      room.hostName = room.guestName;
+      room.hostAvatar = room.guestAvatar;
+      room.hostUnits = room.guestUnits;
+      room.hostReady = false;
+      room.hostOnline = true;
+      clearGuest(room);
+      room.playerCount = 1;
+      room.status = "waiting";
+      room.battle = null;
+      return room;
+    }
+
+    return room;
+  });
+
+  // 역할이 바뀌었을 수 있으니 온라인 표시를 새 역할 기준으로 다시 건다.
+  presenceRole = null;
+}
+
+function clearGuest(room) {
+  room.guestUid = null;
+  room.guestName = null;
+  room.guestAvatar = null;
+  room.guestUnits = null;
+  room.guestReady = false;
+  room.guestOnline = null;
 }
 
 async function leaveRoom(roomRef) {
@@ -402,6 +432,7 @@ async function leaveRoom(roomRef) {
           hostAvatar: room.guestAvatar,
           hostUnits: room.guestUnits,
           hostReady: false,
+          hostOnline: room.guestOnline !== false,
           guestUid: null,
           guestName: null,
           guestAvatar: null,
@@ -409,18 +440,16 @@ async function leaveRoom(roomRef) {
           guestReady: false,
           playerCount: 1,
           status: "waiting",
-          createdAt: room.createdAt
+          createdAt: room.createdAt,
+          lastSeen: room.lastSeen || null
         };
       }
       return null; // 방에 아무도 안 남음 -> 삭제
     }
 
     if (room.guestUid === myUid) {
-      room.guestUid = null;
-      room.guestName = null;
-      room.guestAvatar = null;
-      room.guestUnits = null;
-      room.guestReady = false;
+      clearGuest(room);
+      room.hostReady = false;
       room.playerCount = 1;
       room.status = "waiting";
       room.battle = null;

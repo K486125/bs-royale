@@ -226,7 +226,8 @@ function updateCreateButton() {
 
 function renderRoomList() {
   roomListEl.innerHTML = "";
-  const ids = Object.keys(roomsCache);
+  // 방장이 접속을 끊은 방(앱을 강제 종료했거나 방치된 방)은 목록에서 감춘다.
+  const ids = Object.keys(roomsCache).filter((id) => roomsCache[id].hostOnline !== false);
 
   if (ids.length === 0) {
     roomListEl.innerHTML = `<li class="empty">생성된 방이 없습니다. 방을 만들어보세요!</li>`;
@@ -291,6 +292,7 @@ createRoomBtn.addEventListener("click", async () => {
     hostAvatar: myAvatar,
     hostUnits: defaultUnits(),
     hostReady: false,
+    hostOnline: true,
     guestUid: null,
     guestName: null,
     guestAvatar: null,
@@ -298,14 +300,9 @@ createRoomBtn.addEventListener("click", async () => {
     guestReady: false,
     playerCount: 1,
     status: "waiting",
-    createdAt: serverTimestamp()
+    createdAt: serverTimestamp(),
+    lastSeen: serverTimestamp()
   });
-  // 생성 직후 탭이 닫히는 극히 짧은 순간을 대비한 안전장치.
-  // 팀 화면(room.js)이 뜨면 그쪽에서 곧바로 자체 onDisconnect를 다시 건다.
-  // cancel()이 서버에 반영되기 전에 페이지를 이동하면 방금 만든 remove()가 그대로 발동해
-  // 방이 곧바로 삭제돼버릴 수 있어, 취소가 끝난 뒤에만 이동한다.
-  await onDisconnect(roomRef).remove();
-  await onDisconnect(roomRef).cancel();
 
   window.location.href = `room.html?room=${roomRef.key}`;
 });
@@ -336,6 +333,7 @@ async function goToJoinedRoom(roomId) {
   navigatingToJoinedRoom = true;
 
   redirected = true;
+  // 수락되면 요청 노드는 이미 지워지므로 이 예약은 무의미해지지만, 정리해두고 넘어간다.
   await onDisconnect(ref(db, `rooms/${roomId}/requests/${myUid}`)).cancel();
   window.location.href = `room.html?room=${roomId}`;
 }
@@ -345,6 +343,9 @@ function watchJoinedRoom(roomId) {
   const roomRef = ref(db, `rooms/${roomId}`);
   joinedRoomUnsub = onValue(roomRef, (snap) => {
     const room = snap.val();
+    // 이동 중에는 상태 변화에 반응하지 않는다 (이동 직전에 취소해둔 처리를 되살리지 않기 위해)
+    if (navigatingToJoinedRoom) return;
+
     if (!room) {
       showToast("호스트가 방을 나갔습니다.");
       resetJoinState();
