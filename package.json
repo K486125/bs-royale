@@ -1,6 +1,6 @@
 {
   "name": "bs-royale",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "BS Royale - 실시간 1대1 대전 게임",
   "main": "main.js",
   "scripts": {
@@ -36,7 +36,9 @@
       "target": "nsis",
       "protocols": {
         "name": "BS Royale Protocol",
-        "schemes": ["bsbattle"]
+        "schemes": [
+          "bsbattle"
+        ]
       }
     },
     "nsis": {
