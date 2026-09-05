@@ -2,8 +2,15 @@
 <html>
 <head><meta charset="UTF-8"><title>BGM</title></head>
 <body style="margin:0;background:#000;">
-<audio autoplay loop>
+<audio id="bgm" loop>
   <source src="Videos/BS_BGM.mp4">
 </audio>
+<script>
+  // 닉네임 입력을 마치고 로비에 도달했을 때만 main.js가 여기로 재생 신호를 보낸다.
+  const { ipcRenderer } = require("electron");
+  ipcRenderer.on("play-music", () => {
+    document.getElementById("bgm").play().catch(() => {});
+  });
+</script>
 </body>
 </html>

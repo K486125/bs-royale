@@ -162,6 +162,9 @@ nameInput.addEventListener("keydown", (e) => {
 
 // ---------- 인증 & presence ----------
 function startApp() {
+  // 닉네임 입력을 마치고 로비에 도달하는 시점(재방문 시에도 동일 시점)에 배경음악을 시작한다.
+  if (window.bsApi) window.bsApi.startMusic();
+
   setPersistence(auth, browserSessionPersistence)
     .then(() => signInAnonymously(auth))
     .catch((err) => {

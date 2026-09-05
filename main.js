@@ -1,4 +1,4 @@
-const { app, BrowserWindow, session } = require("electron");
+const { app, BrowserWindow, session, ipcMain } = require("electron");
 const { autoUpdater } = require("electron-updater");
 const path = require("path");
 const http = require("http");
@@ -78,10 +78,20 @@ let visibleWindowCount = 0;
 // 배경음악 전용 숨김 창. 로비<->대기실 페이지 이동(location.href)과 무관하게
 // 계속 떠 있으므로, 새로고침/화면 전환 때마다 음악이 처음부터 다시 켜지지 않는다.
 function createAudioWindow(port) {
-  audioWin = new BrowserWindow({ show: false });
+  audioWin = new BrowserWindow({
+    show: false,
+    // 이 창은 우리가 직접 만든 audio.html만 불러오므로(외부 콘텐츠 없음) 신뢰할 수 있어
+    // ipcRenderer를 직접 쓰도록 nodeIntegration을 허용한다.
+    webPreferences: { nodeIntegration: true, contextIsolation: false }
+  });
   audioWin.loadURL(`http://localhost:${port}/audio.html`);
   audioWin.on("closed", () => { audioWin = null; });
 }
+
+// 로비 화면(닉네임 입력 완료 시점)에서 보내는 신호를 받아 숨김 오디오 창에 재생을 지시한다.
+ipcMain.on("start-music", () => {
+  if (audioWin) audioWin.webContents.send("play-music");
+});
 
 function createWindow(port, pos) {
   const win = new BrowserWindow({
@@ -96,7 +106,8 @@ function createWindow(port, pos) {
     maximizable: true,
     autoHideMenuBar: true,
     webPreferences: {
-      zoomFactor: 1
+      zoomFactor: 1,
+      preload: path.join(__dirname, "preload.js")
     }
   });
 
