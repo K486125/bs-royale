@@ -20,7 +20,8 @@ if (!["patch", "minor", "major"].includes(bump)) {
 }
 
 // 1) 커밋 안 된 변경사항이 있으면 먼저 커밋하도록 안내하고 중단 (실수로 묻히는 걸 방지)
-const status = runCapture("git status --porcelain");
+// note.txt 같은 개인 메모용 untracked 파일은 배포와 무관하므로 검사에서 제외한다.
+const status = runCapture("git status --porcelain --untracked-files=no");
 if (status) {
   console.error("커밋되지 않은 변경사항이 있습니다. 먼저 커밋하거나 스태시한 뒤 다시 실행하세요.");
   console.error(status);
