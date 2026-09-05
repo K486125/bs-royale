@@ -20,6 +20,17 @@ const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getDatabase(app);
 
+// PC 시계가 서버 시간과 어긋나 있으면 placingStartedAt 같은 서버 타임스탬프와
+// Date.now()를 직접 비교했을 때 즉시 "시간 초과"로 잘못 계산될 수 있다.
+// Firebase가 제공하는 표준 오프셋으로 보정한 "서버 기준 현재 시각"을 대신 쓴다.
+let serverTimeOffset = 0;
+onValue(ref(db, ".info/serverTimeOffset"), (snap) => {
+  serverTimeOffset = snap.val() || 0;
+});
+function serverNow() {
+  return Date.now() + serverTimeOffset;
+}
+
 const params = new URLSearchParams(location.search);
 const roomId = params.get("room");
 
@@ -260,7 +271,7 @@ function renderTimer(battle) {
   timerEl.classList.remove("hidden");
 
   const tick = () => {
-    const remain = Math.max(0, PLACING_MS - (Date.now() - battle.placingStartedAt));
+    const remain = Math.max(0, PLACING_MS - (serverNow() - battle.placingStartedAt));
     const sec = Math.ceil(remain / 1000);
 
     timerEl.textContent = myDone
@@ -340,7 +351,7 @@ function renderCountdown(battle) {
   countdownOverlay.classList.remove("hidden");
 
   const tick = () => {
-    const remain = Math.max(0, 3000 - (Date.now() - battle.countdownStartedAt));
+    const remain = Math.max(0, 3000 - (serverNow() - battle.countdownStartedAt));
     const n = Math.ceil(remain / 1000);
     countdownNumberEl.textContent = String(n);
     if (remain <= 0) clearInterval(countdownInterval);
@@ -372,7 +383,7 @@ async function maybeAdvancePhase(room) {
   if (!battle) return;
 
   if (battle.phase === "loading") {
-    const elapsed = Date.now() - (battle.createdAt || Date.now());
+    const elapsed = serverNow() - (battle.createdAt || serverNow());
     if (elapsed >= LOADING_MIN_MS) {
       await update(ref(db, `rooms/${roomId}/battle`), {
         phase: "placing",
