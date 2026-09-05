@@ -41,7 +41,7 @@
     },
     "publish": {
       "provider": "github",
-      "owner": "Zer0yale",
+      "owner": "K486125",
       "repo": "bs-royale"
     }
   }
