@@ -74,6 +74,13 @@ const FIXED_HEIGHT = 600;
 
 let audioWin = null;
 let visibleWindowCount = 0;
+const mainWindows = [];
+
+// 업데이트 확인/다운로드/적용 준비 상태를 열려 있는 모든 창(로비 화면)에 알려서
+// 사용자가 "지금 뭐가 되고 있는지" 안심하고 볼 수 있게 한다.
+function broadcastUpdateStatus(status) {
+  mainWindows.forEach((w) => w.webContents.send("update-status", status));
+}
 
 // 배경음악 전용 숨김 창. 로비<->대기실 페이지 이동(location.href)과 무관하게
 // 계속 떠 있으므로, 새로고침/화면 전환 때마다 음악이 처음부터 다시 켜지지 않는다.
@@ -134,8 +141,10 @@ function createWindow(port, pos) {
   win.loadURL(`http://localhost:${port}/index.html`);
 
   visibleWindowCount++;
+  mainWindows.push(win);
   win.on("closed", () => {
     visibleWindowCount--;
+    mainWindows.splice(mainWindows.indexOf(win), 1);
     if (visibleWindowCount === 0) {
       if (audioWin) audioWin.close();
       if (process.platform !== "darwin") app.quit();
@@ -177,8 +186,22 @@ if (gotLock) {
     });
 
     // 패키징된 빌드에서만 GitHub Releases를 확인해 새 버전이 있으면 자동으로 받아 다음 실행 시 적용한다.
+    // 진행 상황을 화면에도 보여줘서, 조용히 실패했는지 실제로 진행 중인지 사용자가 알 수 있게 한다.
     if (app.isPackaged) {
-      autoUpdater.checkForUpdatesAndNotify().catch((err) => {
+      autoUpdater.on("update-available", (info) => {
+        broadcastUpdateStatus({ type: "available", version: info.version });
+      });
+      autoUpdater.on("download-progress", (p) => {
+        broadcastUpdateStatus({ type: "downloading", percent: Math.round(p.percent) });
+      });
+      autoUpdater.on("update-downloaded", (info) => {
+        broadcastUpdateStatus({ type: "ready", version: info.version });
+      });
+      autoUpdater.on("error", (err) => {
+        broadcastUpdateStatus({ type: "error", message: err && err.message });
+      });
+
+      autoUpdater.checkForUpdates().catch((err) => {
         console.error("업데이트 확인 실패:", err);
       });
     }

@@ -367,4 +367,19 @@ function startDeclineCooldown(roomId) {
   }, 3000);
 }
 
+// 업데이트 다운로드/적용 상태를 사용자가 눈으로 확인할 수 있게 토스트로 보여준다.
+// (확인 중/새 버전 없음/에러는 매번 조용히 넘어가고, 실제로 뭔가 받고 있거나 다 됐을 때만 알림)
+if (window.bsApi && window.bsApi.onUpdateStatus) {
+  let lastPercent = -1;
+  window.bsApi.onUpdateStatus((status) => {
+    if (status.type === "downloading") {
+      if (status.percent === lastPercent) return;
+      lastPercent = status.percent;
+      showToast(`새 버전 다운로드 중... ${status.percent}%`);
+    } else if (status.type === "ready") {
+      showToast(`새 버전(v${status.version}) 준비 완료! 앱을 재시작하면 적용됩니다.`);
+    }
+  });
+}
+
 initNickname();
