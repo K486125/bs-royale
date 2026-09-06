@@ -48,11 +48,19 @@ const roomLoadingEl = document.getElementById("room-loading");
 const ROOM_LOADING_MIN_MS = 700;
 const roomLoadStartedAt = Date.now();
 let roomLoadingDone = false;
+let roomLoadingTimer = null;
 function hideRoomLoading() {
   if (roomLoadingDone) return;
   roomLoadingDone = true;
   const wait = Math.max(0, ROOM_LOADING_MIN_MS - (Date.now() - roomLoadStartedAt));
-  setTimeout(() => roomLoadingEl.classList.add("hidden"), wait);
+  roomLoadingTimer = setTimeout(() => roomLoadingEl.classList.add("hidden"), wait);
+}
+
+function showRoomLoading(text) {
+  // 들어올 때 예약된 '숨기기'가 뒤늦게 실행돼 이 화면을 지우지 않도록 취소한다.
+  clearTimeout(roomLoadingTimer);
+  roomLoadingEl.querySelector(".loading-text").textContent = text;
+  roomLoadingEl.classList.remove("hidden");
 }
 
 function showToast(msg) {
@@ -445,6 +453,7 @@ function clearGuest(room) {
 async function leaveRoom(roomRef) {
   leaving = true;
   leaveBtn.disabled = true;
+  showRoomLoading("로비로 나가는 중...");
 
   await runTransaction(roomRef, (room) => {
     if (!room) return room;

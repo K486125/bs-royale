@@ -54,9 +54,17 @@ const setupAvatarFrame = document.getElementById("setup-avatar-frame");
 const appLoadingEl = document.getElementById("app-loading");
 
 // 방 생성/참가처럼 화면이 넘어가기까지 시간이 걸리는 동작 동안 로딩 화면을 덮어둔다.
-function showLoading(text) {
+// lock=true면 방 목록이 갱신돼도 저절로 닫히지 않는다 (곧 다른 화면으로 넘어갈 예정이므로).
+let loadingLocked = false;
+function showLoading(text, lock = true) {
   appLoadingEl.querySelector(".loading-text").textContent = text;
   appLoadingEl.classList.remove("hidden");
+  if (lock) loadingLocked = true;
+}
+
+function hideLoading() {
+  if (loadingLocked) return;
+  appLoadingEl.classList.add("hidden");
 }
 
 function showToast(msg) {
@@ -207,6 +215,7 @@ function watchRooms() {
 
     renderRoomList();
     updateCreateButton();
+    hideLoading(); // 방 목록까지 그려졌으면 로비가 준비된 것
   });
 }
 
@@ -407,16 +416,18 @@ if (window.bsApi && window.bsApi.onUpdateStatus) {
   });
 }
 
-// 앱을 처음 켰을 때만 로딩 화면을 잠깐 보여준 뒤 닉네임 입력 화면으로 넘어간다.
-// (방에서 로비로 돌아오는 경우에는 이미 닉네임이 있으므로 그냥 바로 보여준다)
+// 앱을 처음 켰을 때는 로딩 화면을 잠깐 보여준 뒤 닉네임 입력 화면으로 넘어간다.
+// 방에서 로비로 돌아온 경우에는 닉네임이 이미 있으므로, 방 목록이 준비될 때까지만 덮어둔다.
 const APP_LOADING_MS = 1500;
 
 if (myName) {
-  appLoadingEl.classList.add("hidden");
+  showLoading("로비로 돌아가는 중...", false);
+  // 로그인/네트워크가 막혀 방 목록이 영영 안 오는 경우에도 로딩 화면에 갇히지 않게 한다.
+  setTimeout(hideLoading, 8000);
   initNickname();
 } else {
   setTimeout(() => {
-    appLoadingEl.classList.add("hidden");
+    hideLoading();
     initNickname();
   }, APP_LOADING_MS);
 }
