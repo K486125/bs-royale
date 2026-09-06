@@ -30,7 +30,15 @@
     "productName": "BS Royale",
     "files": [
       "**/*",
-      "!node_modules/electron-builder/**"
+      "!node_modules/electron-builder/**",
+      "!note.txt",
+      "!docs/**",
+      "!scripts/**",
+      "!build/**",
+      "!database.rules.json",
+      "!netlify.toml",
+      "!Smile_Pin.png",
+      "!.claude/**"
     ],
     "win": {
       "target": "nsis",

@@ -26,7 +26,7 @@ if (!gotLock) {
   app.quit();
 }
 
-const ROOT = __dirname;
+const ROOT = path.resolve(__dirname);
 
 const MIME_TYPES = {
   ".html": "text/html; charset=utf-8",
@@ -45,8 +45,23 @@ const MIME_TYPES = {
 function startServer() {
   return new Promise((resolve) => {
     const server = http.createServer((req, res) => {
-      const urlPath = decodeURIComponent(req.url.split("?")[0]);
-      const filePath = path.join(ROOT, urlPath === "/" ? "index.html" : urlPath);
+      let urlPath;
+      try {
+        urlPath = decodeURIComponent(req.url.split("?")[0]);
+      } catch (e) {
+        res.writeHead(400);
+        res.end("Bad request");
+        return;
+      }
+      const filePath = path.resolve(ROOT, "." + path.posix.normalize(urlPath === "/" ? "/index.html" : urlPath));
+
+      // 주소에 ..가 섞여 있으면 게임 폴더 밖 파일(예: 개인 문서)까지 읽어갈 수 있다.
+      // 최종 경로가 게임 폴더 안인지 확인하고, 벗어나면 없는 것으로 취급한다.
+      if (filePath !== ROOT && !filePath.startsWith(ROOT + path.sep)) {
+        res.writeHead(404);
+        res.end("Not found");
+        return;
+      }
 
       fs.readFile(filePath, (err, data) => {
         if (err) {
@@ -93,9 +108,8 @@ function broadcastUpdateStatus(status) {
 function createAudioWindow(port) {
   audioWin = new BrowserWindow({
     show: false,
-    // 이 창은 우리가 직접 만든 audio.html만 불러오므로(외부 콘텐츠 없음) 신뢰할 수 있어
-    // ipcRenderer를 직접 쓰도록 nodeIntegration을 허용한다.
-    webPreferences: { nodeIntegration: true, contextIsolation: false }
+    // 이 창에는 Node 권한을 열지 않는다. 재생/설정 신호만 preload로 건네준다.
+    webPreferences: { preload: path.join(__dirname, "preload-audio.js") }
   });
   audioWin.loadURL(`http://localhost:${port}/audio.html`);
   audioWin.on("closed", () => { audioWin = null; });
@@ -136,6 +150,14 @@ function createWindow(port, pos) {
       preload: path.join(__dirname, "preload.js")
     }
   });
+
+  // 이 앱은 자기 폴더의 페이지만 띄운다. 혹시라도 외부 주소로 이동하거나
+  // 새 창이 열리려 하면 막아서, 게임 화면이 다른 사이트로 바뀌는 일이 없게 한다.
+  const localOrigin = `http://localhost:${port}`;
+  win.webContents.on("will-navigate", (event, url) => {
+    if (!url.startsWith(localOrigin)) event.preventDefault();
+  });
+  win.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
 
   win.on("will-resize", (event) => {
     if (!win.isMaximized()) event.preventDefault();
