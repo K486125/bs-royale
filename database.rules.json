@@ -1,0 +1,95 @@
+{
+  "rules": {
+    "presence": {
+      ".read": "auth != null",
+
+      "$uid": {
+        ".write": "auth != null && auth.uid === $uid",
+        "name": { ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 12" },
+        "avatar": { ".validate": "newData.isString() && newData.val().matches(/^[A-Za-z]+_[0-9]{3}_Icon[.]png$/)" },
+        "connectedAt": { ".validate": "newData.isNumber()" },
+        "$other": { ".validate": false }
+      }
+    },
+
+    "rooms": {
+      ".read": "auth != null",
+
+      "$roomId": {
+        ".write": "auth != null && ((!data.exists() && newData.child('hostUid').val() === auth.uid) || (data.exists() && (data.child('hostUid').val() === auth.uid || data.child('guestUid').val() === auth.uid)))",
+
+        "hostUid": {
+          ".validate": "newData.isString() && (newData.val() === auth.uid || newData.val() === root.child('rooms').child($roomId).child('hostUid').val() || newData.val() === root.child('rooms').child($roomId).child('guestUid').val())"
+        },
+        "guestUid": {
+          ".validate": "newData.isString() && (newData.val() === auth.uid || newData.val() === root.child('rooms').child($roomId).child('guestUid').val() || root.child('rooms').child($roomId).child('requests').child(newData.val()).exists())"
+        },
+
+        "hostName": { ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 12" },
+        "guestName": { ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 12" },
+        "hostAvatar": { ".validate": "newData.isString() && newData.val().matches(/^[A-Za-z]+_[0-9]{3}_Icon[.]png$/)" },
+        "guestAvatar": { ".validate": "newData.isString() && newData.val().matches(/^[A-Za-z]+_[0-9]{3}_Icon[.]png$/)" },
+        "hostUnits": {
+          "$slot": { ".validate": "newData.isString() && newData.val().matches(/^[A-Za-z]+_[0-9]{3}_Icon[.]png$/) && $slot.matches(/^[0-2]$/)" }
+        },
+        "guestUnits": {
+          "$slot": { ".validate": "newData.isString() && newData.val().matches(/^[A-Za-z]+_[0-9]{3}_Icon[.]png$/) && $slot.matches(/^[0-2]$/)" }
+        },
+        "hostReady": { ".validate": "newData.isBoolean()" },
+        "guestReady": { ".validate": "newData.isBoolean()" },
+        "hostOnline": { ".validate": "newData.isBoolean()" },
+        "guestOnline": { ".validate": "newData.isBoolean()" },
+        "playerCount": { ".validate": "newData.isNumber() && newData.val() >= 1 && newData.val() <= 2" },
+        "status": { ".validate": "newData.isString() && newData.val().matches(/^(waiting|full)$/)" },
+        "createdAt": { ".validate": "newData.isNumber()" },
+        "lastSeen": { ".validate": "newData.isNumber()" },
+
+        "requests": {
+          "$reqUid": {
+            ".write": "auth != null && auth.uid === $reqUid",
+            "guestName": { ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 12" },
+            "guestAvatar": { ".validate": "newData.isString() && newData.val().matches(/^[A-Za-z]+_[0-9]{3}_Icon[.]png$/)" },
+            "guestUnits": {
+              "$slot": { ".validate": "newData.isString() && newData.val().matches(/^[A-Za-z]+_[0-9]{3}_Icon[.]png$/) && $slot.matches(/^[0-2]$/)" }
+            },
+            "createdAt": { ".validate": "newData.isNumber()" },
+            "$other": { ".validate": false }
+          }
+        },
+
+        "battle": {
+          "phase": { ".validate": "newData.isString() && newData.val().matches(/^(loading|placing|countdown)$/)" },
+          "createdAt": { ".validate": "newData.isNumber()" },
+          "placingStartedAt": { ".validate": "newData.isNumber()" },
+          "countdownStartedAt": { ".validate": "newData.isNumber()" },
+
+          "hostDone": { ".validate": "newData.isBoolean() && root.child('rooms').child($roomId).child('hostUid').val() === auth.uid" },
+          "guestDone": { ".validate": "newData.isBoolean() && root.child('rooms').child($roomId).child('guestUid').val() === auth.uid" },
+
+          "hostPlacements": {
+            ".validate": "root.child('rooms').child($roomId).child('hostUid').val() === auth.uid",
+            "$tile": {
+              ".validate": "$tile.matches(/^[4-6]_[0-6]$/)",
+              "slot": { ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 2" },
+              "file": { ".validate": "newData.isString() && newData.val().matches(/^[A-Za-z]+_[0-9]{3}_Icon[.]png$/)" },
+              "$other": { ".validate": false }
+            }
+          },
+          "guestPlacements": {
+            ".validate": "root.child('rooms').child($roomId).child('guestUid').val() === auth.uid",
+            "$tile": {
+              ".validate": "$tile.matches(/^[0-2]_[0-6]$/)",
+              "slot": { ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 2" },
+              "file": { ".validate": "newData.isString() && newData.val().matches(/^[A-Za-z]+_[0-9]{3}_Icon[.]png$/)" },
+              "$other": { ".validate": false }
+            }
+          },
+
+          "$other": { ".validate": false }
+        },
+
+        "$other": { ".validate": false }
+      }
+    }
+  }
+}
