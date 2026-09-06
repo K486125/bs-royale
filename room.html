@@ -27,7 +27,19 @@
   </section>
 
   <section class="team-block">
-    <ul id="opponent-row" class="team-row"></ul>
+    <!-- 채팅 버튼은 상대 카드줄의 오른쪽 끝 아래에 붙는다 -->
+    <div class="chat-anchor">
+      <ul id="opponent-row" class="team-row"></ul>
+      <button id="chat-toggle" class="chat-toggle" title="채팅 열기/닫기" aria-label="채팅">
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M4 4h16a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H9l-5 4v-4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z"/>
+          <circle class="dot" cx="8.5" cy="10.5" r="1.3"/>
+          <circle class="dot" cx="12" cy="10.5" r="1.3"/>
+          <circle class="dot" cx="15.5" cy="10.5" r="1.3"/>
+        </svg>
+        <span id="chat-badge" class="chat-badge hidden">0</span>
+      </button>
+    </div>
   </section>
 </main>
 
@@ -43,6 +55,18 @@
 
 <button id="leave-btn" class="btn leave leave-btn-fixed">나가기</button>
 <button id="ready-btn" class="ready-btn">게임 준비</button>
+
+<aside id="chat-panel" class="panel chat-panel collapsed">
+  <div class="panel-header">
+    <h2>채팅</h2>
+    <button id="chat-close" class="btn icon-btn" title="채팅 닫기">✕</button>
+  </div>
+  <div id="chat-log" class="chat-log"></div>
+  <form id="chat-form" class="chat-form" autocomplete="off">
+    <input id="chat-input" class="chat-input" type="text" maxlength="200" placeholder="메시지를 입력하세요">
+    <button type="submit" class="chat-send">전송</button>
+  </form>
+</aside>
 
 <div id="request-bar" class="request-bar hidden"></div>
 <div id="toast" class="toast"></div>

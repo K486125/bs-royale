@@ -496,6 +496,9 @@ async function handleOpponentLeft() {
       room.playerCount = 1;
       room.status = "waiting";
       room.battle = null;
+      room.chat = null;
+      room.hostTyping = null;
+      room.guestTyping = null;
       return room;
     }
 
@@ -511,6 +514,9 @@ async function handleOpponentLeft() {
       room.playerCount = 1;
       room.status = "waiting";
       room.battle = null;
+      room.chat = null;
+      room.hostTyping = null;
+      room.guestTyping = null;
       return room;
     }
 

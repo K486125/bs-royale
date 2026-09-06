@@ -1105,3 +1105,137 @@ body.battle-page {
   .loading-text { font-size: 24px; }
   .countdown-number { font-size: 220px; }
 }
+
+/* ---------- 대기실 채팅 ---------- */
+.card-bar.bar-typing { background: #6f7bd8; color: #0d1130; }
+
+/* 상대 카드줄의 오른쪽 끝 아래에 붙는 채팅 버튼 */
+.chat-anchor { position: relative; }
+.chat-toggle {
+  position: absolute;
+  right: -12px;
+  bottom: -14px;
+  width: 46px;
+  height: 46px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(180deg, #3a4480, #232a52);
+  border: 3px solid #5866b8;
+  border-radius: 12px;
+  box-shadow: 0 4px 0 #151a38, 0 6px 14px rgba(0,0,0,.4);
+  cursor: pointer;
+  z-index: 45;
+  transition: transform .15s ease, background .15s ease;
+}
+.chat-toggle:hover { transform: translateY(-2px); }
+.chat-toggle.active { background: linear-gradient(180deg, #5866b8, #3a4480); }
+.chat-toggle svg { width: 26px; height: 26px; fill: #dfe4ff; }
+.chat-toggle svg .dot { fill: #232a52; }
+.chat-badge {
+  position: absolute;
+  top: -8px;
+  right: -8px;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 5px;
+  border-radius: 10px;
+  background: #ff4d4d;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 900;
+  line-height: 20px;
+  text-align: center;
+  box-shadow: 0 2px 0 #8f1c1c;
+}
+@media (min-width: 1300px) {
+  .chat-toggle { width: 58px; height: 58px; right: -16px; bottom: -18px; border-width: 4px; }
+  .chat-toggle svg { width: 32px; height: 32px; }
+}
+
+/* 채팅 사이드바: 로비의 방 목록 사이드바와 같은 형태(오른쪽 위아래 꽉 채움) */
+.chat-panel {
+  width: min(420px, 88vw);
+  padding: 20px;
+  z-index: 60; /* 채팅 중에는 준비 버튼을 가려도 된다 */
+}
+.chat-log {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-right: 4px;
+  scrollbar-width: thin;
+}
+.chat-msg { display: flex; }
+.chat-msg.mine { justify-content: flex-end; }
+.chat-msg.theirs { justify-content: flex-start; }
+.chat-bubble {
+  max-width: 78%;
+  padding: 9px 12px;
+  border-radius: 8px; /* 직사각형에 살짝 둥근 모서리 */
+  background: #2a3364;
+  border: 2px solid #3a4480;
+  color: #e8eaf0;
+  font-size: 14px;
+  line-height: 1.45;
+}
+.chat-msg.mine .chat-bubble { background: #3a4480; border-color: #5866b8; }
+.chat-who {
+  display: block;
+  font-weight: 900;
+  font-size: 13px;
+  color: #9aa5d1;
+  margin-bottom: 2px;
+}
+.chat-msg.mine .chat-who { color: #cdd4ff; }
+/* 긴 줄은 자동으로 다음 줄로 넘긴다 */
+.chat-text {
+  display: block;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.chat-form {
+  display: flex;
+  gap: 8px;
+  margin-top: 14px;
+  flex-shrink: 0;
+}
+.chat-input {
+  flex: 1;
+  min-width: 0;
+  padding: 11px 12px;
+  border-radius: 8px;
+  border: 2px solid #3a4480;
+  background: #171d3c;
+  color: #e8eaf0;
+  font-size: 14px;
+  font-family: inherit;
+}
+.chat-input:focus { outline: none; border-color: #5866b8; }
+.chat-input:disabled { color: #6a75a8; cursor: not-allowed; }
+.chat-send {
+  flex-shrink: 0;
+  white-space: nowrap;
+  padding: 11px 16px;
+  border-radius: 8px;
+  border: 2px solid #a35300;
+  background: #ff9d2f;
+  color: #3a2000;
+  font-weight: 900;
+  font-size: 14px;
+  cursor: pointer;
+  box-shadow: 0 3px 0 #a35300;
+}
+.chat-send:active { transform: translateY(2px); box-shadow: none; }
+
+@media (max-width: 700px) {
+  .chat-panel { width: min(340px, 92vw); padding: 16px; }
+  .chat-bubble { max-width: 86%; font-size: 13px; }
+  .chat-toggle { width: 42px; height: 42px; right: -6px; bottom: -10px; }
+}

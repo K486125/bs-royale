@@ -1,6 +1,7 @@
 import { firebaseConfig } from "./firebase-config.js";
 import { unitFrameClass, unitNumber } from "./unit-colors.js";
 import { playSelect } from "./sfx.js";
+import { initChat, renderChat } from "./chat.js";
 import { initializeApp } from "https://www.gstatic.com/firebasejs/12.18.0/firebase-app.js";
 import {
   getAuth, signInAnonymously, onAuthStateChanged,
@@ -90,6 +91,13 @@ if (!roomId) {
 onAuthStateChanged(auth, (user) => {
   if (!user || !roomId) return;
   myUid = user.uid;
+  initChat({
+    db,
+    roomId,
+    getMyUid: () => myUid,
+    getIsHost: () => currentIsHost,
+    getRoom: () => currentRoom
+  });
   watchRoom();
 });
 
@@ -130,6 +138,7 @@ function watchRoom() {
 
     renderTeamScreen(room, isHost);
     renderRequestBar(room, isHost);
+    renderChat(room, isHost);
     hideRoomLoading();
   });
 
@@ -272,11 +281,12 @@ async function selectUnit(slot, file) {
 
 // 상대 카드: 유닛 3개는 항상 익명("?") 처리. 정체성 카드(로비 프로필+닉네임+준비 상태)는 공개 정보라 그대로 노출.
 // 아직 상대가 없으면 이름은 "???", 상태는 "초대 대기 중".
-function renderOpponentRow(exists, name, avatarFile, ready, showCrown) {
+function renderOpponentRow(exists, name, avatarFile, ready, showCrown, typing) {
   opponentRowEl.innerHTML = "";
 
   const displayName = exists ? name : "???";
-  const barOverride = exists ? null : { cls: "bar-waiting", text: "초대 대기 중" };
+  let barOverride = exists ? null : { cls: "bar-waiting", text: "초대 대기 중" };
+  if (exists && typing) barOverride = { cls: "bar-typing", text: "입력 중" };
 
   const identityLi = document.createElement("li");
   identityLi.className = "bs-card identity-card";
@@ -303,9 +313,11 @@ function renderTeamScreen(room, isHost) {
   const oppName = isHost ? room.guestName : room.hostName;
   const oppAvatar = isHost ? room.guestAvatar : room.hostAvatar;
   const oppReady = isHost ? room.guestReady : room.hostReady;
+  const oppTyping = isHost ? !!room.guestTyping : !!room.hostTyping;
 
   renderMyRow(myName, myAvatar, myUnits, myReady, isHost);
-  renderOpponentRow(oppExists, oppName, oppAvatar, oppReady, !isHost);
+  // 상대가 채팅을 치는 동안에는 "준비 중" 대신 "입력 중"을 보여준다 (준비 완료 상태는 그대로 유지).
+  renderOpponentRow(oppExists, oppName, oppAvatar, oppReady, !isHost, oppTyping && !oppReady);
 
   readyBtn.disabled = !oppExists;
   readyBtn.textContent = myReady ? "준비 완료" : "게임 준비";
@@ -357,6 +369,7 @@ async function acceptRequest(guestUid, req) {
     room.playerCount = 2;
     room.status = "full";
     room.requests = null;
+    clearChat(room);
     return room;
   });
   if (!result.committed) {
@@ -418,6 +431,7 @@ async function handleOpponentLeft() {
       room.playerCount = 1;
       room.status = "waiting";
       room.battle = null;
+      clearChat(room);
       return room;
     }
 
@@ -433,6 +447,7 @@ async function handleOpponentLeft() {
       room.playerCount = 1;
       room.status = "waiting";
       room.battle = null;
+      clearChat(room);
       return room;
     }
 
@@ -441,6 +456,14 @@ async function handleOpponentLeft() {
 
   // 역할이 바뀌었을 수 있으니 온라인 표시를 새 역할 기준으로 다시 건다.
   presenceRole = null;
+}
+
+// 방이 다시 1인 대기 상태가 되면 이전 대화를 남기지 않는다.
+// (다음에 들어올 사람에게 남의 대화가 보이면 안 된다)
+function clearChat(room) {
+  room.chat = null;
+  room.hostTyping = null;
+  room.guestTyping = null;
 }
 
 function clearGuest(room) {
@@ -489,6 +512,7 @@ async function leaveRoom(roomRef) {
       room.playerCount = 1;
       room.status = "waiting";
       room.battle = null;
+      clearChat(room);
       return room;
     }
 
