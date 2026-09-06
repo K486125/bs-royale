@@ -150,10 +150,13 @@ function watchRoom() {
       // 빠져나올 방법이 없으므로 들어가지 않고 지운다.
       // 이 화면(스냅샷)의 준비 상태는 아직 true이므로, 지운 직후에 아래 "둘 다 준비 완료"
       // 조건이 다시 전투를 만들어내지 않도록 여기서 갈라놓는다 (대기실↔전투 무한 왕복의 원인).
-      // 남은 사람이 방장이 아닐 수도 있으므로(방장이 창을 끈 경우) 역할과 무관하게 지운다.
-      // 둘이 동시에 지워도 같은 값을 쓰는 것이라 문제되지 않는다.
-      update(roomRef, { battle: null, hostReady: false, guestReady: false })
-        .catch((err) => console.error("남아있는 전투 데이터 정리 실패:", err));
+      if (oppUid) {
+        // 상대 자리를 비우고 채팅에 퇴장 알림까지 남긴다 (전투 데이터도 여기서 지워진다).
+        handleOpponentLeft();
+      } else {
+        update(roomRef, { battle: null, hostReady: false, guestReady: false })
+          .catch((err) => console.error("남아있는 전투 데이터 정리 실패:", err));
+      }
     } else if (isHost && room.hostReady && room.guestReady && !opponentGone) {
       // 둘 다 준비 완료되면 호스트가 대표로 배치 단계를 시작시킨다 (양쪽이 동시에 써서 충돌할 필요 없음).
       // 상대가 이미 사라진 상태라면 새 전투를 시작하지 않는다.
@@ -549,48 +552,75 @@ function watchOpponentPresence(room, isHost) {
   }, oppNavigating === false ? OPPONENT_QUICK_MS : OPPONENT_GRACE_MS);
 }
 
-// 상대가 확실히 나갔을 때, 남아있는 쪽이 방을 정리한다.
+// 상대가 확실히 나갔을 때(창을 껐거나 컴퓨터가 꺼졌을 때), 남아있는 쪽이 방을 정리한다.
+// 나간 사람의 자리를 실제로 비우고, 채팅에 퇴장 알림을 남긴다.
+//
+// 방 전체를 다시 쓰는 트랜잭션은 필드 하나만 규칙에 걸려도 통째로 거부돼서
+// 정리가 통째로 실패한다. 어차피 이 시점에는 방에 나 혼자뿐이라 경합이 없으므로,
+// 바뀌는 값만 골라 쓰는 방식이 훨씬 안전하다.
+let opponentLeftInFlight = false;
 async function handleOpponentLeft() {
-  const noticeKey = newChatKey(db, roomId);
+  if (opponentLeftInFlight) return;
 
-  await runTransaction(ref(db, `rooms/${roomId}`), (room) => {
-    if (!room) return room;
+  const room = currentRoom || {};
+  const isHost = currentIsHost;
+  const oppUid = isHost ? room.guestUid : room.hostUid;
+  const oppName = (isHost ? room.guestName : room.hostName) || "상대방";
+  const stillGone = isHost ? room.guestOnline === false : room.hostOnline === false;
+  if (!oppUid || !stillGone) return; // 그 사이 돌아왔으면 아무것도 하지 않는다
 
-    if (room.hostUid === myUid) {
-      if (room.guestOnline !== false) return; // 그 사이 돌아옴 -> 취소
-      room.chat = addLeaveNotice(room.chat, { key: noticeKey, uid: room.guestUid, name: room.guestName });
-      clearGuest(room);
-      room.hostReady = false;
-      room.playerCount = 1;
-      room.status = "waiting";
-      room.battle = null;
-      clearTyping(room);
-      return room;
-    }
+  opponentLeftInFlight = true;
 
-    if (room.guestUid === myUid) {
-      if (room.hostOnline !== false) return; // 그 사이 돌아옴 -> 취소
-      room.chat = addLeaveNotice(room.chat, { key: noticeKey, uid: room.hostUid, name: room.hostName });
-      room.hostChatSince = room.guestChatSince || null;
-      room.hostUid = myUid;
-      room.hostName = room.guestName;
-      room.hostAvatar = room.guestAvatar;
-      room.hostUnits = room.guestUnits;
-      room.hostReady = false;
-      room.hostOnline = true;
-      clearGuest(room);
-      room.playerCount = 1;
-      room.status = "waiting";
-      room.battle = null;
-      clearTyping(room);
-      return room;
-    }
+  const updates = {
+    // 나간 사람(게스트 자리)을 비운다
+    guestUid: null,
+    guestName: null,
+    guestAvatar: null,
+    guestUnits: null,
+    guestReady: false,
+    guestOnline: null,
+    guestChatSince: null,
+    guestNavigating: null,
+    guestTyping: null,
+    hostTyping: null,
+    hostReady: false,
+    playerCount: 1,
+    status: "waiting",
+    battle: null,
+    matchEndPending: null
+  };
 
-    return room;
-  });
+  if (!isHost) {
+    // 방장이 나갔다면 내가 방장이 된다 (보던 채팅 범위도 그대로 가져간다).
+    updates.hostUid = myUid;
+    updates.hostName = room.guestName;
+    updates.hostAvatar = room.guestAvatar;
+    updates.hostUnits = room.guestUnits || null;
+    updates.hostOnline = true;
+    updates.hostChatSince = room.guestChatSince || null;
+    updates.hostNavigating = null;
+  }
+
+  if (!hasLeaveNotice(room.chat, oppUid)) {
+    updates[`chat/${newChatKey(db, roomId)}`] = { type: "leave", uid: oppUid, name: oppName };
+  }
+
+  try {
+    await update(ref(db, `rooms/${roomId}`), updates);
+  } catch (err) {
+    console.error("상대 이탈 정리 실패:", err);
+  }
 
   // 역할이 바뀌었을 수 있으니 온라인 표시를 새 역할 기준으로 다시 건다.
   presenceRole = null;
+  opponentLeftInFlight = false;
+}
+
+// 나가는 본인과 남은 쪽이 동시에 알림을 남기지 않도록, 이미 있으면 넘어간다.
+function hasLeaveNotice(chat, uid) {
+  const keys = Object.keys(chat || {}).sort();
+  const last = keys.length ? chat[keys[keys.length - 1]] : null;
+  return !!(last && last.type === "leave" && last.uid === uid);
 }
 
 // 나간 사람의 "입력 중" 표시가 남지 않도록 지운다.

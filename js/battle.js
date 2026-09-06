@@ -1,7 +1,7 @@
 import { firebaseConfig } from "./firebase-config.js";
 import { unitFrameClass } from "./unit-colors.js";
 import { playSelect } from "./sfx.js";
-import { newChatKey, addLeaveNotice } from "./chat.js";
+import { newChatKey } from "./chat.js";
 import { initServerTime, serverNow, serverTimeReady, whenServerTime } from "./server-time.js";
 import { pushNotice } from "./notice.js";
 import { initializeApp } from "https://www.gstatic.com/firebasejs/12.18.0/firebase-app.js";
@@ -10,7 +10,7 @@ import {
   setPersistence, browserSessionPersistence
 } from "https://www.gstatic.com/firebasejs/12.18.0/firebase-auth.js";
 import {
-  getDatabase, ref, set, update, onValue, onDisconnect, runTransaction, serverTimestamp
+  getDatabase, ref, set, update, onValue, onDisconnect, serverTimestamp
 } from "https://www.gstatic.com/firebasejs/12.18.0/firebase-database.js";
 
 const AVATAR_PATH = "BS_Plr_Icons/";
@@ -615,94 +615,70 @@ function watchOpponentPresence(room, isHost) {
   }, oppNavigating === false ? OPPONENT_QUICK_MS : OPPONENT_GRACE_MS);
 }
 
+// 상대가 창을 껐을 때, 남아있는 쪽이 상대 자리를 비우고 채팅에 퇴장 알림을 남긴다.
+// 방 전체를 다시 쓰는 트랜잭션은 필드 하나만 규칙에 걸려도 통째로 거부돼 정리가 실패하고,
+// 그러면 남은 사람이 전투 화면에 갇힌다. 이 시점에는 방에 나 혼자뿐이라 경합이 없으므로
+// 바뀌는 값만 골라 쓴다.
 async function handleOpponentLeft() {
-  // 대기실로 돌아갔을 때 채팅에 퇴장 알림이 남아 있도록 여기서 같이 기록한다.
-  const noticeKey = newChatKey(db, roomId);
+  const room = currentRoom || {};
+  const oppUid = isHost ? room.guestUid : room.hostUid;
+  const oppName = (isHost ? room.guestName : room.hostName) || "상대방";
+  const stillGone = isHost ? room.guestOnline === false : room.hostOnline === false;
 
-  let committed = false;
-  try {
-    const result = await cleanupTransaction(noticeKey);
-    committed = !!(result && result.committed);
-  } catch (err) {
-    console.error("상대 이탈 정리 실패:", err);
+  const updates = {
+    guestUid: null,
+    guestName: null,
+    guestAvatar: null,
+    guestUnits: null,
+    guestReady: false,
+    guestOnline: null,
+    guestChatSince: null,
+    guestNavigating: null,
+    guestTyping: null,
+    hostTyping: null,
+    hostReady: false,
+    playerCount: 1,
+    status: "waiting",
+    battle: null,
+    matchEndPending: null
+  };
+
+  if (!isHost) {
+    // 방장이 나갔다면 내가 방장이 된다 (보던 채팅 범위도 그대로 가져간다).
+    updates.hostUid = myUid;
+    updates.hostName = room.guestName;
+    updates.hostAvatar = room.guestAvatar;
+    updates.hostUnits = room.guestUnits || null;
+    updates.hostOnline = true;
+    updates.hostChatSince = room.guestChatSince || null;
+    updates.hostNavigating = null;
+  }
+
+  if (oppUid && stillGone && !hasLeaveNotice(room.chat, oppUid)) {
+    updates[`chat/${newChatKey(db, roomId)}`] = { type: "leave", uid: oppUid, name: oppName };
   }
 
   presenceRole = null;
-  if (committed) return;
 
-  // 트랜잭션이 중단되는 경우는 상대가 그 사이 돌아왔을 때다. 그때는 아무것도 하지 않는다.
-  const opponentStillGone = currentRoom
-    && (isHost ? currentRoom.guestOnline === false : currentRoom.hostOnline === false);
-  if (!opponentStillGone) return;
-
-  // 여기까지 왔다면 방 정리가 안 된 것이다. 이 상태로 두면 전투 화면에 갇히므로,
-  // 꼭 필요한 것(전투 종료)만 다시 시도한다. 그래도 안 되면 계속 재시도한다.
   for (let i = 0; i < 5; i++) {
     try {
-      await update(ref(db, `rooms/${roomId}`), {
-        battle: null,
-        hostReady: false,
-        guestReady: false
-      });
+      await update(ref(db, `rooms/${roomId}`), updates);
       return;
     } catch (err) {
-      console.error(`전투 정리 재시도 ${i + 1} 실패:`, err);
-      await wait(1500);
+      console.error(`상대 이탈 정리 ${i + 1}번째 실패:`, err);
+      await wait(1200);
     }
   }
+
+  // 그래도 안 되면 최소한 이 사람은 전투 화면에서 빠져나가게 한다.
   pushNotice("방을 정리하지 못했습니다. 대기실로 돌아갑니다.");
   goRoom();
 }
 
-function cleanupTransaction(noticeKey) {
-  return runTransaction(ref(db, `rooms/${roomId}`), (room) => {
-    if (!room) return room;
-
-    if (room.hostUid === myUid) {
-      if (room.guestOnline !== false) return;
-      room.chat = addLeaveNotice(room.chat, { key: noticeKey, uid: room.guestUid, name: room.guestName });
-      clearGuest(room);
-      room.hostReady = false;
-      room.playerCount = 1;
-      room.status = "waiting";
-      room.battle = null;
-      room.hostTyping = null;
-      room.guestTyping = null;
-      room.matchEndPending = null;
-      return room;
-    }
-
-    if (room.guestUid === myUid) {
-      if (room.hostOnline !== false) return;
-      room.chat = addLeaveNotice(room.chat, { key: noticeKey, uid: room.hostUid, name: room.hostName });
-      room.hostChatSince = room.guestChatSince || null;
-      room.hostUid = myUid;
-      room.hostName = room.guestName;
-      room.hostAvatar = room.guestAvatar;
-      room.hostUnits = room.guestUnits;
-      room.hostReady = false;
-      room.hostOnline = true;
-      clearGuest(room);
-      room.playerCount = 1;
-      room.status = "waiting";
-      room.battle = null;
-      room.hostTyping = null;
-      room.guestTyping = null;
-      room.matchEndPending = null;
-      return room;
-    }
-
-    return room;
-  });
+// 나가는 본인과 남은 쪽이 동시에 알림을 남기지 않도록, 이미 있으면 넘어간다.
+function hasLeaveNotice(chat, uid) {
+  const keys = Object.keys(chat || {}).sort();
+  const last = keys.length ? chat[keys[keys.length - 1]] : null;
+  return !!(last && last.type === "leave" && last.uid === uid);
 }
 
-function clearGuest(room) {
-  room.guestUid = null;
-  room.guestChatSince = null;
-  room.guestNavigating = null;
-  room.guestName = null;
-  room.guestAvatar = null;
-  room.guestUnits = null;
-  room.guestReady = false;
-  room.guestOnline = null;
-}
