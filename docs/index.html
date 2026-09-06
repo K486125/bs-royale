@@ -78,12 +78,12 @@
   }
 
   /* 로딩이 끝나면 본문이 부드럽게 나타난다 */
-  main, .sound-btn {
+  main, .music-btn {
     opacity: 0;
     transition: opacity .5s ease;
   }
   body.ready main,
-  body.ready .sound-btn { opacity: 1; }
+  body.ready .music-btn { opacity: 1; }
 
   /* 배경 영상: 화면을 잘라내며 꽉 채운다 */
   .bg-video {
@@ -197,33 +197,40 @@
   }
   .platform-note.show { display: block; }
 
-  /* 영상 소리 켜기/끄기 (브라우저는 소리 있는 자동재생을 막으므로 반드시 필요하다) */
-  .sound-btn {
+  /* 음악 버튼: 다운로드 버튼과 같은 디자인을 작게 줄여 좌측 하단에 둔다.
+     (브라우저가 소리 있는 자동재생을 막기 때문에 직접 눌러야 음악이 시작된다) */
+  .music-btn {
     position: fixed;
-    right: 20px;
-    bottom: 20px;
-    width: 52px;
-    height: 52px;
-    display: flex;
+    left: 24px;
+    bottom: 24px;
+    display: inline-flex;
     align-items: center;
-    justify-content: center;
-    font-size: 22px;
-    background: rgba(26, 30, 51, .78);
-    color: #fff;
-    border: 3px solid #3a4480;
+    gap: 10px;
+    background: var(--accent);
+    color: #241a00;
+    border: 3px solid var(--accent-edge);
     border-radius: 12px;
+    padding: 13px 22px;
+    font-family: inherit;
+    font-size: 16px;
+    font-weight: 900;
     cursor: pointer;
-    box-shadow: 0 4px 0 #151a38;
-    transition: transform .06s ease;
+    box-shadow: 0 5px 0 var(--accent-edge), 0 10px 20px rgba(0,0,0,.45);
+    transition: transform .06s ease, box-shadow .06s ease, filter .15s ease;
   }
-  .sound-btn:active { transform: translateY(4px); box-shadow: none; }
+  .music-btn:hover { filter: brightness(1.06); }
+  .music-btn:active {
+    transform: translateY(5px);
+    box-shadow: 0 0 0 var(--accent-edge), 0 5px 12px rgba(0,0,0,.4);
+  }
+  .music-btn .icon { font-size: 1.15em; }
 
 
   @media (max-width: 600px) {
     main { gap: 18px; }
     .logo { width: 92px; height: 92px; }
     .download-btn { padding: 16px 30px; }
-    .sound-btn { width: 44px; height: 44px; font-size: 18px; right: 14px; bottom: 14px; }
+    .music-btn { left: 14px; bottom: 14px; padding: 11px 16px; font-size: 14px; }
   }
 </style>
 </head>
@@ -252,7 +259,9 @@
   <p class="version" id="version">최신 버전을 확인하는 중...</p>
 </main>
 
-<button id="sound" class="sound-btn" title="소리 켜기" aria-label="소리 켜기">🔇</button>
+<button id="sound" class="music-btn" type="button">
+  <span class="icon">🔊</span><span class="label">음악 켜기</span>
+</button>
 
 <script>
   const REPO = "K486125/bs-royale";
@@ -316,11 +325,13 @@
   // 시작하는 시점이다. 그 순간에도 음악이 중간부터 나오지 않도록 앞으로 되감는다.
   let soundStarted = false;
 
+  const soundIcon = soundBtn.querySelector(".icon");
+  const soundLabel = soundBtn.querySelector(".label");
+
   function setMuted(muted) {
     video.muted = muted;
-    soundBtn.textContent = muted ? "🔇" : "🔊";
-    soundBtn.title = muted ? "소리 켜기" : "소리 끄기";
-    soundBtn.setAttribute("aria-label", soundBtn.title);
+    soundIcon.textContent = muted ? "🔊" : "🔇";
+    soundLabel.textContent = muted ? "음악 켜기" : "음악 끄기";
 
     if (!muted) {
       if (!soundStarted) {
@@ -332,20 +343,8 @@
     }
   }
 
-  soundBtn.addEventListener("click", (e) => {
-    e.stopPropagation();
-    setMuted(!video.muted);
-  });
-
-  // 첫 클릭(또는 키 입력) 한 번으로 소리가 켜지게 한다. 다운로드 버튼 클릭은 제외.
-  function unmuteOnce(e) {
-    if (e.target.closest && e.target.closest("a, button")) return;
-    setMuted(false);
-    document.removeEventListener("click", unmuteOnce);
-    document.removeEventListener("keydown", unmuteOnce);
-  }
-  document.addEventListener("click", unmuteOnce);
-  document.addEventListener("keydown", unmuteOnce);
+  // 음악은 이 버튼을 눌렀을 때만 나온다. 모르고 클릭했다가 갑자기 소리가 나는 일은 없다.
+  soundBtn.addEventListener("click", () => setMuted(!video.muted));
 
   // ---------- Windows가 아니면 버튼을 막는다 ----------
   // .exe는 PC 전용이라 폰에서는 받아도 실행할 수 없다. 받기 전에 막고 알려준다.
