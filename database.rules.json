@@ -49,7 +49,8 @@
 
         "chat": {
           "$msgId": {
-            "uid": { ".validate": "newData.isString() && (newData.val() === auth.uid || newData.val() === root.child('rooms').child($roomId).child('chat').child($msgId).child('uid').val())" },
+            "uid": { ".validate": "newData.isString() && (newData.val() === auth.uid || newData.val() === root.child('rooms').child($roomId).child('chat').child($msgId).child('uid').val() || newData.val() === root.child('rooms').child($roomId).child('hostUid').val() || newData.val() === root.child('rooms').child($roomId).child('guestUid').val())" },
+            "type": { ".validate": "newData.isString() && newData.val() === 'leave'" },
             "name": { ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 12" },
             "text": { ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 200" },
             "$other": { ".validate": false }

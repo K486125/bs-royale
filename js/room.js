@@ -1,7 +1,7 @@
 import { firebaseConfig } from "./firebase-config.js";
 import { unitFrameClass, unitNumber } from "./unit-colors.js";
 import { playSelect } from "./sfx.js";
-import { initChat, renderChat } from "./chat.js";
+import { initChat, renderChat, newChatKey, addLeaveNotice } from "./chat.js";
 import { initializeApp } from "https://www.gstatic.com/firebasejs/12.18.0/firebase-app.js";
 import {
   getAuth, signInAnonymously, onAuthStateChanged,
@@ -421,22 +421,26 @@ function watchOpponentPresence(room, isHost) {
 
 // 상대가 확실히 나갔을 때, 남아있는 쪽이 방을 정리한다.
 async function handleOpponentLeft() {
+  const noticeKey = newChatKey(db, roomId);
+
   await runTransaction(ref(db, `rooms/${roomId}`), (room) => {
     if (!room) return room;
 
     if (room.hostUid === myUid) {
       if (room.guestOnline !== false) return; // 그 사이 돌아옴 -> 취소
+      room.chat = addLeaveNotice(room.chat, { key: noticeKey, uid: room.guestUid, name: room.guestName });
       clearGuest(room);
       room.hostReady = false;
       room.playerCount = 1;
       room.status = "waiting";
       room.battle = null;
-      clearChat(room);
+      clearTyping(room);
       return room;
     }
 
     if (room.guestUid === myUid) {
       if (room.hostOnline !== false) return; // 그 사이 돌아옴 -> 취소
+      room.chat = addLeaveNotice(room.chat, { key: noticeKey, uid: room.hostUid, name: room.hostName });
       room.hostUid = myUid;
       room.hostName = room.guestName;
       room.hostAvatar = room.guestAvatar;
@@ -447,7 +451,7 @@ async function handleOpponentLeft() {
       room.playerCount = 1;
       room.status = "waiting";
       room.battle = null;
-      clearChat(room);
+      clearTyping(room);
       return room;
     }
 
@@ -458,12 +462,16 @@ async function handleOpponentLeft() {
   presenceRole = null;
 }
 
-// 방이 다시 1인 대기 상태가 되면 이전 대화를 남기지 않는다.
-// (다음에 들어올 사람에게 남의 대화가 보이면 안 된다)
-function clearChat(room) {
-  room.chat = null;
+// 나간 사람의 "입력 중" 표시가 남지 않도록 지운다.
+function clearTyping(room) {
   room.hostTyping = null;
   room.guestTyping = null;
+}
+
+// 새로운 상대가 들어올 때는 이전 사람의 대화를 남기지 않는다.
+function clearChat(room) {
+  room.chat = null;
+  clearTyping(room);
 }
 
 function clearGuest(room) {
@@ -480,12 +488,15 @@ async function leaveRoom(roomRef) {
   leaveBtn.disabled = true;
   showRoomLoading("로비로 나가는 중...");
 
+  const noticeKey = newChatKey(db, roomId);
+
   await runTransaction(roomRef, (room) => {
     if (!room) return room;
 
     if (room.hostUid === myUid) {
       if (room.guestUid) {
         return {
+          chat: addLeaveNotice(room.chat, { key: noticeKey, uid: myUid, name: room.hostName }),
           hostUid: room.guestUid,
           hostName: room.guestName,
           hostAvatar: room.guestAvatar,
@@ -507,12 +518,13 @@ async function leaveRoom(roomRef) {
     }
 
     if (room.guestUid === myUid) {
+      room.chat = addLeaveNotice(room.chat, { key: noticeKey, uid: myUid, name: room.guestName });
       clearGuest(room);
       room.hostReady = false;
       room.playerCount = 1;
       room.status = "waiting";
       room.battle = null;
-      clearChat(room);
+      clearTyping(room);
       return room;
     }
 

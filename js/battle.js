@@ -1,6 +1,7 @@
 import { firebaseConfig } from "./firebase-config.js";
 import { unitFrameClass } from "./unit-colors.js";
 import { playSelect } from "./sfx.js";
+import { newChatKey, addLeaveNotice } from "./chat.js";
 import { initializeApp } from "https://www.gstatic.com/firebasejs/12.18.0/firebase-app.js";
 import {
   getAuth, signInAnonymously, onAuthStateChanged,
@@ -486,17 +487,20 @@ function watchOpponentPresence(room, isHost) {
 }
 
 async function handleOpponentLeft() {
+  // 대기실로 돌아갔을 때 채팅에 퇴장 알림이 남아 있도록 여기서 같이 기록한다.
+  const noticeKey = newChatKey(db, roomId);
+
   await runTransaction(ref(db, `rooms/${roomId}`), (room) => {
     if (!room) return room;
 
     if (room.hostUid === myUid) {
       if (room.guestOnline !== false) return;
+      room.chat = addLeaveNotice(room.chat, { key: noticeKey, uid: room.guestUid, name: room.guestName });
       clearGuest(room);
       room.hostReady = false;
       room.playerCount = 1;
       room.status = "waiting";
       room.battle = null;
-      room.chat = null;
       room.hostTyping = null;
       room.guestTyping = null;
       return room;
@@ -504,6 +508,7 @@ async function handleOpponentLeft() {
 
     if (room.guestUid === myUid) {
       if (room.hostOnline !== false) return;
+      room.chat = addLeaveNotice(room.chat, { key: noticeKey, uid: room.hostUid, name: room.hostName });
       room.hostUid = myUid;
       room.hostName = room.guestName;
       room.hostAvatar = room.guestAvatar;
@@ -514,7 +519,6 @@ async function handleOpponentLeft() {
       room.playerCount = 1;
       room.status = "waiting";
       room.battle = null;
-      room.chat = null;
       room.hostTyping = null;
       room.guestTyping = null;
       return room;

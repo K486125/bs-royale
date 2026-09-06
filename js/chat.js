@@ -92,13 +92,38 @@ async function send() {
   await runTransaction(ref(db, `rooms/${roomId}/chat`), (chat) => {
     const next = chat || {};
     next[key] = { uid, name, text };
-
-    const keys = Object.keys(next).sort();
-    if (keys.length >= MAX_MESSAGES) {
-      keys.slice(0, keys.length - KEEP_MESSAGES).forEach((k) => { delete next[k]; });
-    }
-    return next;
+    return trimChat(next);
   });
+}
+
+// ---------- 다른 화면(대기실/전투)에서 쓰는 도우미 ----------
+// 채팅 키는 push가 만드는 시간순 ID다. Firebase가 서버 시간으로 보정해 만들어 주기 때문에
+// 양쪽 PC의 시계가 어긋나 있어도, 키를 정렬하면 "먼저 일어난 순"이 된다.
+// 그래서 채팅과 퇴장 알림이 거의 동시에 생겨도 순서가 뒤바뀌지 않는다.
+export function newChatKey(database, room) {
+  return push(ref(database, `rooms/${room}/chat`)).key;
+}
+
+export function trimChat(chat) {
+  const next = chat || {};
+  const keys = Object.keys(next).sort();
+  if (keys.length >= MAX_MESSAGES) {
+    keys.slice(0, keys.length - KEEP_MESSAGES).forEach((k) => { delete next[k]; });
+  }
+  return next;
+}
+
+// "OOO님이 나갔습니다" 알림을 채팅 기록에 남긴다. 방을 정리하는 트랜잭션 안에서 호출한다.
+// 나가는 본인과 남아있는 쪽이 동시에 알림을 넣으려 할 수 있으므로 같은 사람의 알림이
+// 이미 마지막에 있으면 넣지 않는다.
+export function addLeaveNotice(chat, { key, uid, name }) {
+  const next = chat || {};
+  const keys = Object.keys(next).sort();
+  const last = keys.length ? next[keys[keys.length - 1]] : null;
+  if (last && last.type === "leave" && last.uid === uid) return next;
+
+  next[key] = { type: "leave", uid, name: name || "상대방" };
+  return trimChat(next);
 }
 
 // ---------- 입력 중 표시 ----------
@@ -135,6 +160,9 @@ export function renderChat(room, isHost) {
   const myUid = getMyUid();
   logEl.innerHTML = keys.map((k) => {
     const m = chat[k] || {};
+    if (m.type === "leave") {
+      return `<div class="chat-notice">${escapeHtml(m.name || "상대방")}님이 나갔습니다.</div>`;
+    }
     const mine = m.uid === myUid;
     return `
       <div class="chat-msg ${mine ? "mine" : "theirs"}">
@@ -152,7 +180,10 @@ export function renderChat(room, isHost) {
   firstRender = false;
   if (!open && added > 0) {
     const newOnes = keys.slice(keys.length - added);
-    unread += newOnes.filter((k) => (chat[k] || {}).uid !== myUid).length;
+    unread += newOnes.filter((k) => {
+      const m = chat[k] || {};
+      return m.type !== "leave" && m.uid !== myUid;
+    }).length;
     renderBadge();
   }
   lastSeenCount = keys.length;
