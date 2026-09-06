@@ -1,0 +1,24 @@
+# Netlify 배포 설정.
+# 이 저장소는 게임(Electron 앱)과 소개 웹사이트가 함께 들어 있어서,
+# 웹사이트에 해당하는 docs 폴더만 배포한다. 빌드 과정은 필요 없다(순수 HTML).
+[build]
+  publish = "docs"
+  command = ""
+
+# 배경 영상은 한 번 받으면 바뀌지 않으므로 브라우저가 오래 캐시하도록 한다.
+# (매 방문마다 7MB를 다시 받지 않게 해서 로딩도 빨라진다)
+[[headers]]
+  for = "/BS_BGM.mp4"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
+
+[[headers]]
+  for = "/icon.png"
+  [headers.values]
+    Cache-Control = "public, max-age=604800"
+
+# index.html은 매번 최신을 확인하게 둔다 (내용을 고치면 바로 반영되도록).
+[[headers]]
+  for = "/index.html"
+  [headers.values]
+    Cache-Control = "public, max-age=0, must-revalidate"
