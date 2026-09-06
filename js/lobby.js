@@ -3,13 +3,14 @@ import { unitFrameClass, unitNumber } from "./unit-colors.js";
 import { playSelect } from "./sfx.js";
 import { newChatKey, addJoinNotice } from "./chat.js";
 import { loadSettings, saveSettings } from "./settings.js";
+import { pushNotice } from "./notice.js";
 import { initializeApp } from "https://www.gstatic.com/firebasejs/12.18.0/firebase-app.js";
 import {
   getAuth, signInAnonymously, onAuthStateChanged,
   setPersistence, browserSessionPersistence
 } from "https://www.gstatic.com/firebasejs/12.18.0/firebase-auth.js";
 import {
-  getDatabase, ref, set, update, push, onValue, onDisconnect, serverTimestamp
+  getDatabase, ref, set, update, push, remove, onValue, onDisconnect, serverTimestamp
 } from "https://www.gstatic.com/firebasejs/12.18.0/firebase-database.js";
 
 const AVATARS = [
@@ -33,6 +34,9 @@ let myAvatar = sessionStorage.getItem("bs_avatar") || DEFAULT_UNIT;
 sessionStorage.setItem("bs_avatar", myAvatar);
 
 let joinedRoomId = null; // 내가 게스트로 참가 요청 보낸 방 (수락 대기중)
+// 보낸 초대는 10초 동안만 유효하다. 호스트가 그 안에 수락하지 않으면 스스로 거둬들인다.
+const INVITE_TIMEOUT_MS = 10000;
+let inviteTimer = null;
 let roomsCache = {};
 let redirected = false;
 const declineCooldowns = new Set(); // 거절당한 방: 3초간 재요청 버튼 비활성화
@@ -445,7 +449,23 @@ async function requestJoin(roomId) {
   });
   onDisconnect(ref(db, `rooms/${roomId}/requests/${myUid}`)).remove();
 
+  clearTimeout(inviteTimer);
+  inviteTimer = setTimeout(() => expireInvite(roomId), INVITE_TIMEOUT_MS);
+
   watchJoinedRoom(roomId);
+}
+
+// 10초 안에 수락되지 않은 초대는 만료시킨다. 다시 걸려면 초대 버튼을 다시 눌러야 한다.
+async function expireInvite(roomId) {
+  const hostName = (roomsCache[roomId] || {}).hostName || "상대";
+  // 감시를 먼저 끊어야, 내가 지운 요청을 보고 "거절당했다"고 잘못 알리지 않는다.
+  resetJoinState();
+  try {
+    await remove(ref(db, `rooms/${roomId}/requests/${myUid}`));
+  } catch (err) {
+    console.error("초대 만료 처리 실패:", err);
+  }
+  pushNotice(`${hostName}님에게 보낸 초대가 만료되었습니다.`);
 }
 
 let navigatingToJoinedRoom = false;
@@ -454,6 +474,10 @@ let navigatingToJoinedRoom = false;
 async function goToJoinedRoom(roomId) {
   if (navigatingToJoinedRoom) return;
   navigatingToJoinedRoom = true;
+
+  // 수락됐으므로 만료 타이머는 더 이상 필요 없다 (이동이 늦어져도 요청을 지우지 않게).
+  clearTimeout(inviteTimer);
+  inviteTimer = null;
 
   redirected = true;
   showLoading("방에 들어가는 중...");
@@ -478,7 +502,11 @@ function watchJoinedRoom(roomId) {
     if (room.guestUid === myUid) {
       goToJoinedRoom(roomId);
     } else if (!room.requests || !(myUid in room.requests)) {
-      showToast("참가 요청이 거절되었거나 다른 플레이어가 참가했습니다.");
+      if (room.guestUid) {
+        pushNotice("다른 플레이어가 먼저 참가했습니다.");
+      } else {
+        pushNotice(`${room.hostName}님이 초대를 거절했습니다.`);
+      }
       resetJoinState();
       startDeclineCooldown(roomId);
     }
@@ -486,6 +514,8 @@ function watchJoinedRoom(roomId) {
 }
 
 function resetJoinState() {
+  clearTimeout(inviteTimer);
+  inviteTimer = null;
   if (joinedRoomUnsub) {
     joinedRoomUnsub();
     joinedRoomUnsub = null;

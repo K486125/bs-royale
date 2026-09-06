@@ -26,6 +26,15 @@ const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getDatabase(app);
 
+// 이 PC의 시계가 서버와 어긋나 있어도 초대 남은 시간이 엉뚱하게 계산되지 않도록 보정한다.
+let serverTimeOffset = 0;
+onValue(ref(db, ".info/serverTimeOffset"), (snap) => {
+  serverTimeOffset = snap.val() || 0;
+});
+function serverNow() {
+  return Date.now() + serverTimeOffset;
+}
+
 const params = new URLSearchParams(location.search);
 const roomId = params.get("room");
 
@@ -147,11 +156,11 @@ function watchRoom() {
     const myReady = currentIsHost ? currentRoom.hostReady : currentRoom.guestReady;
     const myUnits = currentIsHost ? currentRoom.hostUnits : currentRoom.guestUnits;
     if (!myReady && !hasAllUnits(myUnits)) {
-      showToast("유닛 3개를 모두 선택해야 준비할 수 있습니다.");
+      showToast(`실패: 유닛을 모두 장착 하세요 (${unitCount(myUnits)}/3)`);
       return;
     }
     if (!myReady && hasDuplicateUnits(myUnits)) {
-      showToast("같은 유닛이 중복 선택되어 있습니다. 유닛을 확인해주세요.");
+      showToast("실패: 중복 유닛을 확인하세요.");
       return;
     }
     // 트랜잭션은 재시도 시 낙관적 업데이트가 여러 번 발생해 버튼이 깜빡이므로,
@@ -170,6 +179,10 @@ function goToBattle() {
 
 function unitAt(units, i) {
   return units ? units[i] : null;
+}
+
+function unitCount(units) {
+  return [0, 1, 2].filter((i) => unitAt(units, i)).length;
 }
 
 function hasAllUnits(units) {
@@ -334,20 +347,59 @@ function renderRequestBar(room, isHost) {
   const reqs = room.requests || {};
   const firstUid = Object.keys(reqs)[0];
   if (!firstUid) {
+    clearTimeout(requestExpireTimer);
+    requestExpireTimer = null;
     requestBarEl.classList.add("hidden");
     requestBarEl.innerHTML = "";
     return;
   }
 
   const req = reqs[firstUid];
+  const remain = INVITE_TIMEOUT_MS - (serverNow() - (req.createdAt || serverNow()));
+  if (remain <= 0) {
+    // 이미 만료된 초대 -> 지우고 표시하지 않는다 (게스트 쪽에서도 스스로 거둬간다).
+    expireRequest(firstUid);
+    requestBarEl.classList.add("hidden");
+    requestBarEl.innerHTML = "";
+    return;
+  }
+
   requestBarEl.classList.remove("hidden");
   requestBarEl.innerHTML = `
-    <span class="req-text"><b>${escapeHtml(req.guestName)}</b>님의 참가 요청을 수락하시겠습니까?</span>
-    <button class="accept-req">네</button>
-    <button class="decline-req">아니요</button>
+    <div class="req-row">
+      <span class="req-text"><b>${escapeHtml(req.guestName)}</b>님의 참가 요청을 수락하시겠습니까?</span>
+      <button class="accept-req">수락</button>
+      <button class="decline-req">거절</button>
+    </div>
+    <div class="req-gauge"><div class="req-gauge-fill"></div></div>
   `;
   requestBarEl.querySelector(".accept-req").addEventListener("click", () => acceptRequest(firstUid, req));
   requestBarEl.querySelector(".decline-req").addEventListener("click", () => declineRequest(firstUid));
+
+  // 남은 시간만큼 게이지를 오른쪽에서 왼쪽으로 줄인다.
+  const fill = requestBarEl.querySelector(".req-gauge-fill");
+  fill.style.transition = "none";
+  fill.style.width = `${(remain / INVITE_TIMEOUT_MS) * 100}%`;
+  requestAnimationFrame(() => {
+    fill.style.transition = `width ${remain}ms linear`;
+    fill.style.width = "0%";
+  });
+
+  // 시간이 다 되면 방 데이터에는 아무 변화가 없으므로, 스스로 깨어나 요청을 정리한다.
+  clearTimeout(requestExpireTimer);
+  requestExpireTimer = setTimeout(() => expireRequest(firstUid), remain);
+}
+
+// 초대는 10초만 유효하다 (게스트 쪽 타이머와 같은 값).
+const INVITE_TIMEOUT_MS = 10000;
+let requestExpireTimer = null;
+
+function expireRequest(guestUid) {
+  clearTimeout(requestExpireTimer);
+  requestExpireTimer = null;
+  update(ref(db, `rooms/${roomId}/requests`), { [guestUid]: null }).catch((err) => {
+    console.error("만료된 초대 정리 실패:", err);
+  });
 }
 
 function escapeHtml(str) {

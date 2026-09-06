@@ -783,8 +783,9 @@ body.room-page .team-screen {
   border-radius: 10px;
   padding: 14px 20px;
   display: flex;
-  align-items: center;
-  gap: 16px;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 10px;
   box-shadow: 0 4px 0 #0a0d1e, 0 8px 20px rgba(0,0,0,.5);
   z-index: 50;
   max-width: calc(100vw - 32px);
@@ -837,7 +838,7 @@ body.room-page .team-screen {
   .bs-card { width: 120px; }
   .ready-btn { right: 14px; bottom: 14px; padding: 12px 20px; font-size: 14px; }
   .leave-btn-fixed { left: 14px; bottom: 14px; padding: 10px 18px; font-size: 13px; }
-  .request-bar { flex-wrap: wrap; justify-content: center; text-align: center; }
+  .request-bar .req-row { flex-wrap: wrap; justify-content: center; text-align: center; }
 }
 
 @media (min-width: 1600px) {
@@ -1300,4 +1301,65 @@ body.battle-page {
   background: #6dc23f;
   border-color: #4b8a29;
   color: #fff;
+}
+
+/* ---------- 초대 요청 바 (수락/거절 + 남은 시간 게이지) ---------- */
+.request-bar .req-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+/* 남은 10초가 오른쪽에서 왼쪽으로 줄어든다 */
+.req-gauge {
+  height: 8px;
+  border-radius: 5px;
+  background: #12172c;
+  border: 2px solid #3a4480;
+  overflow: hidden;
+}
+.req-gauge-fill {
+  height: 100%;
+  width: 100%;
+  border-radius: 3px;
+  background: linear-gradient(90deg, #ffd36b, #ff9d2f);
+}
+
+/* ---------- 화면 맨 위에 쌓이는 알림 바 ---------- */
+.notice-stack {
+  position: fixed;
+  top: calc(var(--titlebar-h) + 12px);
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(560px, calc(100vw - 32px));
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+  z-index: 400;
+  pointer-events: none;
+}
+.notice-bar {
+  pointer-events: auto;
+  cursor: pointer;
+  box-sizing: border-box;
+  padding: 11px 16px;
+  border-radius: 8px;
+  background: #4a4e57;
+  border: 2px solid #6b7079;
+  box-shadow: 0 4px 0 #23262d, 0 6px 16px rgba(0,0,0,.45);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 900;
+  text-align: center;
+  text-shadow:
+    -1px -1px 0 #000, 1px -1px 0 #000,
+    -1px  1px 0 #000, 1px  1px 0 #000,
+    0 1px 0 #000;
+  opacity: 0;
+  transform: translateY(-10px);
+  transition: opacity .2s ease, transform .2s ease;
+}
+.notice-bar.show { opacity: 1; transform: none; }
+@media (max-width: 700px) {
+  .notice-bar { font-size: 13px; padding: 9px 12px; }
 }
