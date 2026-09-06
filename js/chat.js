@@ -141,6 +141,14 @@ export function addJoinNotice(chat, info) {
   return addNotice(chat, "join", info);
 }
 
+// 매치가 끝나고 두 사람이 모두 대기실로 돌아왔을 때 남기는 알림.
+// 사람이 아니라 방에 일어난 일이라 uid가 없고, 매번 새로 남긴다.
+export function addMatchEndNotice(chat, { key }) {
+  const next = chat || {};
+  next[key] = { type: "match" };
+  return trimChat(next);
+}
+
 // ---------- 입력 중 표시 ----------
 function onTyping() {
   setTyping(inputEl.value.length > 0);
@@ -179,6 +187,9 @@ export function renderChat(room, isHost) {
   const myUid = getMyUid();
   logEl.innerHTML = keys.map((k) => {
     const m = chat[k] || {};
+    if (m.type === "match") {
+      return `<div class="chat-notice match">매치가 종료되었습니다.</div>`;
+    }
     if (m.type === "leave" || m.type === "join") {
       const what = m.type === "join" ? "대기실에 참가했습니다." : "나갔습니다.";
       return `<div class="chat-notice ${m.type}">${escapeHtml(m.name || "상대방")}님이 ${what}</div>`;

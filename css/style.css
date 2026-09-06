@@ -1296,8 +1296,9 @@ body.battle-page {
     -1px  1px 0 #000, 1px  1px 0 #000,
     0 1px 0 #000;
 }
-/* 참가 알림: 슬라임 초록 바탕에 흰 글자 */
-.chat-notice.join {
+/* 참가/매치 종료 알림: 슬라임 초록 바탕에 흰 글자 */
+.chat-notice.join,
+.chat-notice.match {
   background: #6dc23f;
   border-color: #4b8a29;
   color: #fff;

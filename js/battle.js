@@ -424,7 +424,9 @@ function handleFinish(battle) {
       update(ref(db, `rooms/${roomId}`), {
         battle: null,
         hostReady: false,
-        guestReady: false
+        guestReady: false,
+        // 채팅의 매치 종료 알림은 둘 다 대기실에 도착한 뒤에 남긴다 (room.js 참고).
+        matchEndPending: true
       }).catch((err) => console.error("전투 정리 실패:", err));
     }
   }, MATCH_END_MS);

@@ -1,7 +1,7 @@
 import { firebaseConfig } from "./firebase-config.js";
 import { unitFrameClass, unitNumber } from "./unit-colors.js";
 import { playSelect } from "./sfx.js";
-import { initChat, renderChat, newChatKey, addLeaveNotice, addJoinNotice } from "./chat.js";
+import { initChat, renderChat, newChatKey, addLeaveNotice, addJoinNotice, addMatchEndNotice } from "./chat.js";
 import { initServerTime, serverNow, serverTimeReady, whenServerTime } from "./server-time.js";
 import { initializeApp } from "https://www.gstatic.com/firebasejs/12.18.0/firebase-app.js";
 import {
@@ -147,6 +147,7 @@ function watchRoom() {
     renderTeamScreen(room, isHost);
     renderRequestBar(room, isHost);
     renderChat(room, isHost);
+    maybeAnnounceMatchEnd(room, isHost);
     hideRoomLoading();
   });
 
@@ -166,6 +167,27 @@ function watchRoom() {
     // 단순 boolean 토글은 트랜잭션 없이 한 번에 값을 써서 부드럽게 처리한다.
     const field = currentIsHost ? "hostReady" : "guestReady";
     update(roomRef, { [field]: !myReady });
+  });
+}
+
+// 매치가 끝나면 전투 화면이 matchEndPending 표시를 남긴다.
+// 두 사람이 모두 대기실에 무사히 도착한 것을 확인한 뒤에 채팅에 알림을 남긴다.
+let matchEndAnnounced = false;
+function maybeAnnounceMatchEnd(room, isHost) {
+  if (!isHost || !room.matchEndPending || matchEndAnnounced) return;
+  if (!room.guestUid) return;                                     // 상대가 없음
+  if (room.hostOnline === false || room.guestOnline === false) return; // 아직 도착 전
+  matchEndAnnounced = true;
+
+  const key = newChatKey(db, roomId);
+  runTransaction(ref(db, `rooms/${roomId}`), (r) => {
+    if (!r || !r.matchEndPending) return; // 이미 남겨졌으면 중단
+    r.chat = addMatchEndNotice(r.chat, { key });
+    r.matchEndPending = null;
+    return r;
+  }).catch((err) => {
+    matchEndAnnounced = false;
+    console.error("매치 종료 알림 실패:", err);
   });
 }
 
@@ -536,6 +558,7 @@ async function handleOpponentLeft() {
 function clearTyping(room) {
   room.hostTyping = null;
   room.guestTyping = null;
+  room.matchEndPending = null; // 상대가 없어졌으면 남길 알림도 의미가 없다
 }
 
 function clearGuest(room) {
