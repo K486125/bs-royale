@@ -666,6 +666,7 @@ body.room-page .team-screen {
   font-weight: 800;
   font-size: 14px;
   color: #cfd8f5;
+  min-width: 0; /* 공간이 모자라면 버튼이 아니라 이 텍스트가 줄어들게 한다 */
 }
 .request-bar .req-text b { color: #6ef2a4; }
 .request-bar button {
@@ -675,6 +676,8 @@ body.room-page .team-screen {
   font-weight: 900;
   cursor: pointer;
   font-size: 14px;
+  white-space: nowrap; /* "아니요"가 "아니 / 요"로 쪼개지지 않도록 */
+  flex-shrink: 0;
 }
 .request-bar button:active {
   transform: translateY(3px);
@@ -912,4 +915,47 @@ body.battle-page {
     -3px  3px 0 #000, 3px  3px 0 #000,
     0 3px 0 #000, 0 6px 0 #000, 0 9px 0 #000,
     0 16px 16px rgba(0,0,0,.4);
+}
+
+/* ---------- 최대화 상태에서 함께 커져야 하는 나머지 UI ---------- */
+/* (.avatar-frame이 .avatar-frame-lg보다 먼저 와야 큰 프로필이 덮이지 않는다) */
+@media (min-width: 1300px) {
+  /* 방 목록 사이드바 */
+  .panel { width: 560px; padding: 34px; }
+  .panel-header { margin-bottom: 24px; }
+  .panel-header h2 { font-size: 24px; }
+  .room-list, .requests-list { gap: 16px; }
+  .room-card, .request-card { padding: 18px 20px; gap: 16px; border-width: 4px; }
+  .avatar-frame { width: 64px; height: 64px; border-width: 5px; }
+  .host-crown-small { width: 30px; height: 30px; top: -19px; }
+  .room-host { font-size: 20px; }
+  .room-count { font-size: 22px; }
+  .btn.small { padding: 12px 22px; font-size: 18px; border-width: 3px; }
+  .empty { font-size: 18px; padding: 28px 0; }
+
+  /* 로비 좌측 상단 프로필 */
+  .player-card { margin: 24px 0 0 24px; padding: 16px 22px 14px; border-radius: 16px; gap: 8px; }
+  .player-name { font-size: 22px; }
+
+  /* 모달 (닉네임 설정 / 프로필 선택 / 유닛 선택) */
+  .modal-box { padding: 36px; gap: 18px; }
+  .modal-box h2 { font-size: 21px; }
+  .modal-box input { padding: 15px 18px; font-size: 21px; }
+  .avatar-picker-box { width: 660px; }
+  .name-setup-box { width: 500px; }
+  .name-setup-preview { gap: 18px; }
+  .avatar-frame-lg { width: 92px; height: 92px; }
+
+  /* 초대 알림 바 */
+  .request-bar { bottom: 30px; padding: 18px 26px; gap: 20px; border-width: 4px; }
+  .request-bar .req-text { font-size: 19px; }
+  .request-bar button { padding: 12px 26px; font-size: 19px; }
+
+  /* 토스트 알림 */
+  .toast { bottom: 30px; padding: 16px 26px; font-size: 19px; border-width: 4px; }
+
+  /* 로딩 화면 / 카운트다운 */
+  .loading-spinner { width: 76px; height: 76px; border-width: 8px; }
+  .loading-text { font-size: 24px; }
+  .countdown-number { font-size: 220px; }
 }
