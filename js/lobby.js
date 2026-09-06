@@ -225,6 +225,8 @@ musicVolume.addEventListener("input", () => {
 sfxVolume.addEventListener("input", () => {
   updateSettings({ sfxVolume: Number(sfxVolume.value) }, { pushMusic: false });
 });
+// 효과음은 조절하는 동안 들을 방법이 없으므로, 손을 뗐을 때 정한 크기로 한 번 들려준다.
+sfxVolume.addEventListener("change", () => playSelect());
 
 // ---------- 닉네임 & 프로필 설정 ----------
 function initNickname() {
