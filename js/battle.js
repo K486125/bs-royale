@@ -509,6 +509,7 @@ async function handleOpponentLeft() {
     if (room.guestUid === myUid) {
       if (room.hostOnline !== false) return;
       room.chat = addLeaveNotice(room.chat, { key: noticeKey, uid: room.hostUid, name: room.hostName });
+      room.hostChatSince = room.guestChatSince || null;
       room.hostUid = myUid;
       room.hostName = room.guestName;
       room.hostAvatar = room.guestAvatar;
@@ -532,6 +533,7 @@ async function handleOpponentLeft() {
 
 function clearGuest(room) {
   room.guestUid = null;
+  room.guestChatSince = null;
   room.guestName = null;
   room.guestAvatar = null;
   room.guestUnits = null;

@@ -1,6 +1,7 @@
 import { firebaseConfig } from "./firebase-config.js";
 import { unitFrameClass, unitNumber } from "./unit-colors.js";
 import { playSelect } from "./sfx.js";
+import { newChatKey, addJoinNotice } from "./chat.js";
 import { loadSettings, saveSettings } from "./settings.js";
 import { initializeApp } from "https://www.gstatic.com/firebasejs/12.18.0/firebase-app.js";
 import {
@@ -394,7 +395,11 @@ createRoomBtn.addEventListener("click", async () => {
   showLoading("방을 만드는 중...");
 
   const roomRef = push(ref(db, "rooms"));
+  // 방을 만든 사람도 "대기실에 참가했습니다" 알림으로 채팅을 시작한다.
+  const joinKey = newChatKey(db, roomRef.key);
   await set(roomRef, {
+    chat: addJoinNotice(null, { key: joinKey, uid: myUid, name: myName }),
+    hostChatSince: joinKey,
     hostUid: myUid,
     hostName: myName,
     hostAvatar: myAvatar,

@@ -44,13 +44,15 @@
         "createdAt": { ".validate": "newData.isNumber()" },
         "lastSeen": { ".validate": "newData.isNumber()" },
 
+        "hostChatSince": { ".validate": "newData.isString() && newData.val().length <= 32" },
+        "guestChatSince": { ".validate": "newData.isString() && newData.val().length <= 32" },
         "hostTyping": { ".validate": "newData.isBoolean()" },
         "guestTyping": { ".validate": "newData.isBoolean()" },
 
         "chat": {
           "$msgId": {
             "uid": { ".validate": "newData.isString() && (newData.val() === auth.uid || newData.val() === root.child('rooms').child($roomId).child('chat').child($msgId).child('uid').val() || newData.val() === root.child('rooms').child($roomId).child('hostUid').val() || newData.val() === root.child('rooms').child($roomId).child('guestUid').val())" },
-            "type": { ".validate": "newData.isString() && newData.val() === 'leave'" },
+            "type": { ".validate": "newData.isString() && newData.val().matches(/^(join|leave)$/)" },
             "name": { ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 12" },
             "text": { ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 200" },
             "$other": { ".validate": false }

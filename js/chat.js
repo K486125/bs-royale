@@ -120,17 +120,25 @@ export function trimChat(chat) {
   return next;
 }
 
-// "OOO님이 나갔습니다" 알림을 채팅 기록에 남긴다. 방을 정리하는 트랜잭션 안에서 호출한다.
-// 나가는 본인과 남아있는 쪽이 동시에 알림을 넣으려 할 수 있으므로 같은 사람의 알림이
-// 이미 마지막에 있으면 넣지 않는다.
-export function addLeaveNotice(chat, { key, uid, name }) {
+// 참가/퇴장 알림을 채팅 기록에 남긴다. 방을 정리하는 트랜잭션 안에서 호출한다.
+// 나가는 본인과 남아있는 쪽이 동시에 알림을 넣으려 할 수 있으므로,
+// 같은 사람의 같은 알림이 이미 마지막에 있으면 넣지 않는다.
+function addNotice(chat, type, { key, uid, name }) {
   const next = chat || {};
   const keys = Object.keys(next).sort();
   const last = keys.length ? next[keys[keys.length - 1]] : null;
-  if (last && last.type === "leave" && last.uid === uid) return next;
+  if (last && last.type === type && last.uid === uid) return next;
 
-  next[key] = { type: "leave", uid, name: name || "상대방" };
+  next[key] = { type, uid, name: name || "상대방" };
   return trimChat(next);
+}
+
+export function addLeaveNotice(chat, info) {
+  return addNotice(chat, "leave", info);
+}
+
+export function addJoinNotice(chat, info) {
+  return addNotice(chat, "join", info);
 }
 
 // ---------- 입력 중 표시 ----------
@@ -159,7 +167,11 @@ export function renderChat(room, isHost) {
   inputEl.placeholder = oppExists ? "메시지를 입력하세요" : "상대가 들어오면 대화할 수 있습니다";
 
   const chat = room.chat || {};
-  const keys = Object.keys(chat).sort();
+  // 새로 들어온 사람에게는 참가 이전의 대화가 보이면 안 된다.
+  // 방에 남아있던 사람은 그대로 다 보이므로, 기록을 지우는 대신 각자의 시작 지점만 다르게 둔다.
+  // (채팅 키는 시간순이라 "내 시작 키보다 뒤"인 것만 고르면 된다)
+  const since = isHost ? room.hostChatSince : room.guestChatSince;
+  const keys = Object.keys(chat).sort().filter((k) => !since || k >= since);
   const sig = keys.join(",");
   if (sig === renderedSig) return; // 다른 값만 바뀐 경우 (준비 상태 등) 채팅은 다시 그리지 않는다
   renderedSig = sig;
@@ -167,8 +179,9 @@ export function renderChat(room, isHost) {
   const myUid = getMyUid();
   logEl.innerHTML = keys.map((k) => {
     const m = chat[k] || {};
-    if (m.type === "leave") {
-      return `<div class="chat-notice">${escapeHtml(m.name || "상대방")}님이 나갔습니다.</div>`;
+    if (m.type === "leave" || m.type === "join") {
+      const what = m.type === "join" ? "대기실에 참가했습니다." : "나갔습니다.";
+      return `<div class="chat-notice ${m.type}">${escapeHtml(m.name || "상대방")}님이 ${what}</div>`;
     }
     const mine = m.uid === myUid;
     return `
@@ -189,7 +202,7 @@ export function renderChat(room, isHost) {
     const newOnes = keys.slice(keys.length - added);
     unread += newOnes.filter((k) => {
       const m = chat[k] || {};
-      return m.type !== "leave" && m.uid !== myUid;
+      return !m.type && m.uid !== myUid;
     }).length;
     renderBadge();
   }

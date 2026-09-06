@@ -1167,23 +1167,62 @@ body.battle-page {
   display: flex;
   flex-direction: column;
   gap: 10px;
-  padding-right: 4px;
+  padding: 0 12px; /* 말풍선 꼬리가 잘리지 않을 만큼의 여백 */
   scrollbar-width: thin;
 }
 .chat-msg { display: flex; }
 .chat-msg.mine { justify-content: flex-end; }
 .chat-msg.theirs { justify-content: flex-start; }
 .chat-bubble {
-  max-width: 78%;
+  position: relative;
+  /* 짧은 말도 말풍선이 너무 쪼그라들지 않도록 기본 가로 길이를 넉넉히 준다.
+     글자는 그대로 왼쪽 위부터 시작한다 */
+  min-width: 60%;
+  max-width: 86%;
   padding: 9px 12px;
   border-radius: 8px; /* 직사각형에 살짝 둥근 모서리 */
-  background: #2a3364;
-  border: 2px solid #3a4480;
+  background: var(--bub-bg);
+  border: 2px solid var(--bub-border);
   color: #e8eaf0;
   font-size: 14px;
   line-height: 1.45;
+  --bub-bg: #2a3364;
+  --bub-border: #3a4480;
 }
-.chat-msg.mine .chat-bubble { background: #3a4480; border-color: #5866b8; }
+.chat-msg.mine .chat-bubble { --bub-bg: #3a4480; --bub-border: #5866b8; }
+
+/* 말풍선 꼬리: 테두리색 삼각형 위에 배경색 삼각형을 겹쳐 테두리까지 이어 보이게 한다 */
+.chat-bubble::before,
+.chat-bubble::after {
+  content: "";
+  position: absolute;
+  top: 12px;
+  width: 0;
+  height: 0;
+  border-style: solid;
+}
+.chat-msg.theirs .chat-bubble::before {
+  left: -11px;
+  border-width: 8px 11px 8px 0;
+  border-color: transparent var(--bub-border) transparent transparent;
+}
+.chat-msg.theirs .chat-bubble::after {
+  left: -7px;
+  top: 14px;
+  border-width: 6px 8px 6px 0;
+  border-color: transparent var(--bub-bg) transparent transparent;
+}
+.chat-msg.mine .chat-bubble::before {
+  right: -11px;
+  border-width: 8px 0 8px 11px;
+  border-color: transparent transparent transparent var(--bub-border);
+}
+.chat-msg.mine .chat-bubble::after {
+  right: -7px;
+  top: 14px;
+  border-width: 6px 0 6px 8px;
+  border-color: transparent transparent transparent var(--bub-bg);
+}
 .chat-who {
   display: block;
   font-weight: 900;
@@ -1236,11 +1275,11 @@ body.battle-page {
 
 @media (max-width: 700px) {
   .chat-panel { width: min(340px, 92vw); padding: 16px; }
-  .chat-bubble { max-width: 86%; font-size: 13px; }
+  .chat-bubble { max-width: 88%; min-width: 55%; font-size: 13px; }
   .chat-toggle { width: 42px; height: 42px; right: -6px; bottom: -10px; }
 }
 
-/* 퇴장 알림: 말풍선이 아니라 가로로 꽉 찬 회색 바 (적색 글자 + 검정 테두리) */
+/* 참가/퇴장 알림: 말풍선이 아니라 가로로 꽉 찬 바 */
 .chat-notice {
   flex-shrink: 0;
   padding: 8px 10px;
@@ -1255,4 +1294,10 @@ body.battle-page {
     -1px -1px 0 #000, 1px -1px 0 #000,
     -1px  1px 0 #000, 1px  1px 0 #000,
     0 1px 0 #000;
+}
+/* 참가 알림: 슬라임 초록 바탕에 흰 글자 */
+.chat-notice.join {
+  background: #6dc23f;
+  border-color: #4b8a29;
+  color: #fff;
 }

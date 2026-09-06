@@ -1,7 +1,7 @@
 import { firebaseConfig } from "./firebase-config.js";
 import { unitFrameClass, unitNumber } from "./unit-colors.js";
 import { playSelect } from "./sfx.js";
-import { initChat, renderChat, newChatKey, addLeaveNotice } from "./chat.js";
+import { initChat, renderChat, newChatKey, addLeaveNotice, addJoinNotice } from "./chat.js";
 import { initializeApp } from "https://www.gstatic.com/firebasejs/12.18.0/firebase-app.js";
 import {
   getAuth, signInAnonymously, onAuthStateChanged,
@@ -358,6 +358,7 @@ function escapeHtml(str) {
 
 async function acceptRequest(guestUid, req) {
   const roomRef = ref(db, `rooms/${roomId}`);
+  const joinKey = newChatKey(db, roomId);
   const result = await runTransaction(roomRef, (room) => {
     if (!room) return room;
     if (room.guestUid) return; // 이미 채워짐 -> 중단
@@ -369,7 +370,10 @@ async function acceptRequest(guestUid, req) {
     room.playerCount = 2;
     room.status = "full";
     room.requests = null;
-    clearChat(room);
+    // 이전 대화를 지우지 않는다. 대신 새 게스트는 자기 참가 알림부터 보게 한다.
+    room.chat = addJoinNotice(room.chat, { key: joinKey, uid: guestUid, name: req.guestName });
+    room.guestChatSince = joinKey;
+    room.guestTyping = null;
     return room;
   });
   if (!result.committed) {
@@ -441,6 +445,7 @@ async function handleOpponentLeft() {
     if (room.guestUid === myUid) {
       if (room.hostOnline !== false) return; // 그 사이 돌아옴 -> 취소
       room.chat = addLeaveNotice(room.chat, { key: noticeKey, uid: room.hostUid, name: room.hostName });
+      room.hostChatSince = room.guestChatSince || null;
       room.hostUid = myUid;
       room.hostName = room.guestName;
       room.hostAvatar = room.guestAvatar;
@@ -468,14 +473,9 @@ function clearTyping(room) {
   room.guestTyping = null;
 }
 
-// 새로운 상대가 들어올 때는 이전 사람의 대화를 남기지 않는다.
-function clearChat(room) {
-  room.chat = null;
-  clearTyping(room);
-}
-
 function clearGuest(room) {
   room.guestUid = null;
+  room.guestChatSince = null;
   room.guestName = null;
   room.guestAvatar = null;
   room.guestUnits = null;
@@ -497,6 +497,7 @@ async function leaveRoom(roomRef) {
       if (room.guestUid) {
         return {
           chat: addLeaveNotice(room.chat, { key: noticeKey, uid: myUid, name: room.hostName }),
+          hostChatSince: room.guestChatSince || null,
           hostUid: room.guestUid,
           hostName: room.guestName,
           hostAvatar: room.guestAvatar,
