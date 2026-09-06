@@ -1172,8 +1172,6 @@ body.battle-page {
   scrollbar-width: none; /* 스크롤바는 숨기고 스크롤은 그대로 */
 }
 .chat-log::-webkit-scrollbar { display: none; }
-/* 대화가 적을 때나 오래된 내용이 정리돼 개수가 줄었을 때도 아래쪽에 붙어 있게 한다 */
-.chat-log > *:first-child { margin-top: auto; }
 .chat-msg { display: flex; }
 .chat-msg.mine { justify-content: flex-end; }
 .chat-msg.theirs { justify-content: flex-start; }
