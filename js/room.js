@@ -1,7 +1,10 @@
 import { firebaseConfig } from "./firebase-config.js";
 import { unitFrameClass, unitNumber } from "./unit-colors.js";
 import { playSelect } from "./sfx.js";
-import { initChat, renderChat, newChatKey, addLeaveNotice, addJoinNotice, addMatchEndNotice } from "./chat.js";
+import {
+  initChat, renderChat, newChatKey, chatRef,
+  isLastLeaveNotice, noticeEntry, writeNotice, trimRootUpdates
+} from "./chat.js";
 import { initServerTime, serverNow, serverTimeReady, whenServerTime } from "./server-time.js";
 import { pushNotice } from "./notice.js";
 import { initializeApp } from "https://www.gstatic.com/firebasejs/12.18.0/firebase-app.js";
@@ -199,12 +202,13 @@ function maybeAnnounceMatchEnd(room, isHost) {
   if (room.hostOnline === false || room.guestOnline === false) return; // 아직 도착 전
   matchEndAnnounced = true;
 
+  // 채팅은 방 바깥(chats/{방ID})에 있으므로 최상위에서 두 곳을 한 번에 쓴다.
+  // 한 번의 쓰기라 "알림만 남고 예약이 안 지워지는" 어긋남이 생기지 않는다.
   const key = newChatKey(db, roomId);
-  runTransaction(ref(db, `rooms/${roomId}`), (r) => {
-    if (!r || !r.matchEndPending) return; // 이미 남겨졌으면 중단
-    r.chat = addMatchEndNotice(r.chat, { key });
-    r.matchEndPending = null;
-    return r;
+  update(ref(db), {
+    [`rooms/${roomId}/matchEndPending`]: null,
+    [`chats/${roomId}/${key}`]: noticeEntry("match"),
+    ...trimRootUpdates(roomId, key)
   }).catch((err) => {
     matchEndAnnounced = false;
     console.error("매치 종료 알림 실패:", err);
@@ -483,8 +487,8 @@ async function acceptRequest(guestUid, req) {
       room.status = "full";
       room.requests = null;
       // 이전 대화를 지우지 않는다. 대신 새 게스트는 자기 참가 알림부터 보게 한다.
-      room.chat = addJoinNotice(room.chat, { key: joinKey, uid: guestUid, name: req.guestName });
       room.guestChatSince = joinKey;
+      room.chat = null; // 예전 구조로 방 안에 남아있던 기록이 있으면 여기서 정리된다
       room.guestTyping = null;
       room.matchEndPending = null; // 지난 매치의 알림 예약이 남아 있으면 지운다
       return room;
@@ -497,6 +501,14 @@ async function acceptRequest(guestUid, req) {
   }
   if (!result.committed) {
     showToast("이미 다른 요청을 수락했습니다.");
+    return;
+  }
+
+  // 자리가 확정된 뒤에 참가 알림을 남긴다 (수락이 무산되면 알림도 남지 않도록).
+  try {
+    await writeNotice(db, roomId, "join", { key: joinKey, uid: guestUid, name: req.guestName });
+  } catch (err) {
+    console.error("참가 알림 실패:", err);
   }
 }
 
@@ -587,7 +599,8 @@ async function handleOpponentLeft() {
     playerCount: 1,
     status: "waiting",
     battle: null,
-    matchEndPending: null
+    matchEndPending: null,
+    chat: null // 예전 구조로 방 안에 남아있던 기록 정리
   };
 
   if (!isHost) {
@@ -601,12 +614,18 @@ async function handleOpponentLeft() {
     updates.hostNavigating = null;
   }
 
-  if (!hasLeaveNotice(room.chat, oppUid)) {
-    updates[`chat/${newChatKey(db, roomId)}`] = { type: "leave", uid: oppUid, name: oppName };
+  // 방과 채팅은 서로 다른 곳에 있으므로 최상위 기준 경로로 모아 한 번에 쓴다.
+  const rootUpdates = {};
+  Object.keys(updates).forEach((k) => { rootUpdates[`rooms/${roomId}/${k}`] = updates[k]; });
+
+  if (!isLastLeaveNotice(oppUid)) {
+    const noticeKey = newChatKey(db, roomId);
+    rootUpdates[`chats/${roomId}/${noticeKey}`] = noticeEntry("leave", oppUid, oppName);
+    Object.assign(rootUpdates, trimRootUpdates(roomId, noticeKey));
   }
 
   try {
-    await update(ref(db, `rooms/${roomId}`), updates);
+    await update(ref(db), rootUpdates);
   } catch (err) {
     console.error("상대 이탈 정리 실패:", err);
   }
@@ -614,13 +633,6 @@ async function handleOpponentLeft() {
   // 역할이 바뀌었을 수 있으니 온라인 표시를 새 역할 기준으로 다시 건다.
   presenceRole = null;
   opponentLeftInFlight = false;
-}
-
-// 나가는 본인과 남은 쪽이 동시에 알림을 남기지 않도록, 이미 있으면 넘어간다.
-function hasLeaveNotice(chat, uid) {
-  const keys = Object.keys(chat || {}).sort();
-  const last = keys.length ? chat[keys[keys.length - 1]] : null;
-  return !!(last && last.type === "leave" && last.uid === uid);
 }
 
 // 나간 사람의 "입력 중" 표시가 남지 않도록 지운다.
@@ -646,11 +658,26 @@ async function leaveRoom(roomRef) {
   leaveBtn.disabled = true;
   showRoomLoading("로비로 나가는 중...");
 
-  const noticeKey = newChatKey(db, roomId);
+  const room = currentRoom || {};
+  const iAmHost = room.hostUid === myUid;
+  const someoneRemains = iAmHost ? !!room.guestUid : !!room.hostUid;
+
+  // 퇴장 알림은 방을 정리하기 "전"에 남긴다. 정리가 끝나면 나는 더 이상 이 방 사람이
+  // 아니라서 채팅에 쓸 권한이 사라지기 때문이다.
+  if (someoneRemains && !isLastLeaveNotice(myUid)) {
+    try {
+      await writeNotice(db, roomId, "leave", {
+        uid: myUid,
+        name: (iAmHost ? room.hostName : room.guestName) || "상대방"
+      });
+    } catch (err) {
+      console.error("퇴장 알림 실패:", err);
+    }
+  }
 
   let committed = false;
   try {
-    const result = await runTransaction(roomRef, leaveUpdater(noticeKey));
+    const result = await runTransaction(roomRef, leaveUpdater());
     committed = !!(result && result.committed);
   } catch (err) {
     console.error("방 나가기 정리 실패:", err);
@@ -658,19 +685,27 @@ async function leaveRoom(roomRef) {
 
   // 정리가 실패하면 방에 내가 남아 있는 것으로 보여서, 로비에 도착하자마자 이 방으로
   // 다시 끌려들어간다. 그래서 실패했을 때는 꼭 필요한 것만 골라 한 번 더 시도한다.
-  if (!committed) await forceLeave(noticeKey);
+  if (!committed) await forceLeave();
+
+  // 아무도 안 남는 방이면 방과 함께 대화 기록도 지운다.
+  if (!someoneRemains) {
+    try {
+      await remove(chatRef(db, roomId));
+    } catch (err) {
+      console.error("채팅 기록 삭제 실패:", err);
+    }
+  }
 
   backToLobby();
 }
 
-function leaveUpdater(noticeKey) {
+function leaveUpdater() {
   return (room) => {
     if (!room) return room;
 
     if (room.hostUid === myUid) {
       if (room.guestUid) {
         return {
-          chat: addLeaveNotice(room.chat, { key: noticeKey, uid: myUid, name: room.hostName }),
           hostChatSince: room.guestChatSince || null,
           hostUid: room.guestUid,
           hostName: room.guestName,
@@ -693,7 +728,7 @@ function leaveUpdater(noticeKey) {
     }
 
     if (room.guestUid === myUid) {
-      room.chat = addLeaveNotice(room.chat, { key: noticeKey, uid: myUid, name: room.guestName });
+      room.chat = null; // 예전 구조로 방 안에 남아있던 기록 정리
       clearGuest(room);
       room.hostReady = false;
       room.playerCount = 1;
@@ -708,7 +743,7 @@ function leaveUpdater(noticeKey) {
 }
 
 // 방 전체를 다시 쓰는 트랜잭션이 거부됐을 때를 위한 최소한의 정리.
-async function forceLeave(noticeKey) {
+async function forceLeave() {
   const room = currentRoom || {};
   const isHost = room.hostUid === myUid;
 
@@ -733,7 +768,8 @@ async function forceLeave(noticeKey) {
       playerCount: 1,
       status: "waiting",
       battle: null,
-      matchEndPending: null
+      matchEndPending: null,
+      chat: null // 예전 구조로 방 안에 남아있던 기록 정리
     };
 
     if (isHost) {
@@ -746,9 +782,6 @@ async function forceLeave(noticeKey) {
       updates.hostChatSince = room.guestChatSince || null;
       updates.hostNavigating = null;
     }
-
-    const name = isHost ? room.hostName : room.guestName;
-    updates[`chat/${noticeKey}`] = { type: "leave", uid: myUid, name: name || "상대방" };
 
     await update(ref(db, `rooms/${roomId}`), updates);
   } catch (err) {

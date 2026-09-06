@@ -1,7 +1,7 @@
 import { firebaseConfig } from "./firebase-config.js";
 import { unitFrameClass, unitNumber } from "./unit-colors.js";
 import { playSelect } from "./sfx.js";
-import { newChatKey, addJoinNotice } from "./chat.js";
+import { newChatKey, writeNotice, chatRef } from "./chat.js";
 import { loadSettings, saveSettings } from "./settings.js";
 import { pushNotice } from "./notice.js";
 import { initServerTime, serverNow, serverTimeReady } from "./server-time.js";
@@ -332,9 +332,13 @@ function cleanupAbandonedRooms() {
     if (!seen || serverNow() - seen < ABANDONED_MS) return;
 
     cleanupTried.add(id);
-    remove(ref(db, `rooms/${id}`)).catch((err) => {
-      console.error("방치된 방 정리 실패:", err);
-    });
+    // 방을 먼저 지우고, 그 방의 대화 기록도 이어서 지운다.
+    // (기록은 방과 함께 사라져야 하고, 방이 없어진 뒤에는 누구든 치울 수 있다)
+    remove(ref(db, `rooms/${id}`))
+      .then(() => remove(chatRef(db, id)))
+      .catch((err) => {
+        console.error("방치된 방 정리 실패:", err);
+      });
   });
 }
 
@@ -429,7 +433,6 @@ createRoomBtn.addEventListener("click", async () => {
   const joinKey = newChatKey(db, roomRef.key);
   try {
     await set(roomRef, {
-      chat: addJoinNotice(null, { key: joinKey, uid: myUid, name: myName }),
       hostChatSince: joinKey,
       hostUid: myUid,
       hostName: myName,
@@ -455,6 +458,13 @@ createRoomBtn.addEventListener("click", async () => {
     createRoomBtn.textContent = "방 만들기";
     showToast("방을 만들지 못했습니다: " + (err && err.message ? err.message : err));
     return;
+  }
+
+  // 방이 만들어진 뒤에야 그 방의 채팅에 쓸 권한이 생기므로 알림은 여기서 남긴다.
+  try {
+    await writeNotice(db, roomRef.key, "join", { key: joinKey, uid: myUid, name: myName });
+  } catch (err) {
+    console.error("참가 알림 실패:", err);
   }
 
   window.location.href = `room.html?room=${roomRef.key}`;

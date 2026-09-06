@@ -12,6 +12,21 @@
       }
     },
 
+    "chats": {
+      "$roomId": {
+        ".read": "auth != null && (root.child('rooms').child($roomId).child('hostUid').val() === auth.uid || root.child('rooms').child($roomId).child('guestUid').val() === auth.uid)",
+        ".write": "auth != null && (root.child('rooms').child($roomId).child('hostUid').val() === auth.uid || root.child('rooms').child($roomId).child('guestUid').val() === auth.uid || (!root.child('rooms').child($roomId).exists() && !newData.exists()))",
+
+        "$msgId": {
+          "uid": { ".validate": "newData.isString() && (newData.val() === auth.uid || newData.parent().child('type').exists())" },
+          "type": { ".validate": "newData.isString() && newData.val().matches(/^(join|leave|match)$/)" },
+          "name": { ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 12" },
+          "text": { ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 200 && newData.parent().child('uid').val() === auth.uid" },
+          "$other": { ".validate": false }
+        }
+      }
+    },
+
     "rooms": {
       ".read": "auth != null",
 
@@ -51,16 +66,6 @@
         "guestNavigating": { ".validate": "newData.isBoolean()" },
         "hostTyping": { ".validate": "newData.isBoolean()" },
         "guestTyping": { ".validate": "newData.isBoolean()" },
-
-        "chat": {
-          "$msgId": {
-            "uid": { ".validate": "newData.isString() && (newData.val() === auth.uid || newData.val() === root.child('rooms').child($roomId).child('chat').child($msgId).child('uid').val() || newData.val() === root.child('rooms').child($roomId).child('hostUid').val() || newData.val() === root.child('rooms').child($roomId).child('guestUid').val() || root.child('rooms').child($roomId).child('requests').child(newData.val()).exists())" },
-            "type": { ".validate": "newData.isString() && newData.val().matches(/^(join|leave|match)$/)" },
-            "name": { ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 12" },
-            "text": { ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 200" },
-            "$other": { ".validate": false }
-          }
-        },
 
         "requests": {
           "$reqUid": {

@@ -1,7 +1,9 @@
 import { firebaseConfig } from "./firebase-config.js";
 import { unitFrameClass } from "./unit-colors.js";
 import { playSelect } from "./sfx.js";
-import { newChatKey } from "./chat.js";
+import {
+  newChatKey, watchChatData, isLastLeaveNotice, noticeEntry, trimRootUpdates
+} from "./chat.js";
 import { initServerTime, serverNow, serverTimeReady, whenServerTime } from "./server-time.js";
 import { pushNotice } from "./notice.js";
 import { initializeApp } from "https://www.gstatic.com/firebasejs/12.18.0/firebase-app.js";
@@ -129,6 +131,9 @@ if (!roomId) {
 onAuthStateChanged(auth, (user) => {
   if (!user || !roomId) return;
   myUid = user.uid;
+  // 전투 화면에는 채팅 UI가 없지만, 퇴장 알림이 이미 남았는지 확인해야 해서
+  // 대화 내용은 계속 지켜본다.
+  watchChatData(db, roomId);
   watchRoom();
 });
 
@@ -684,7 +689,8 @@ async function handleOpponentLeft() {
     playerCount: 1,
     status: "waiting",
     battle: null,
-    matchEndPending: null
+    matchEndPending: null,
+    chat: null // 예전 구조로 방 안에 남아있던 기록 정리
   };
 
   if (!isHost) {
@@ -698,15 +704,21 @@ async function handleOpponentLeft() {
     updates.hostNavigating = null;
   }
 
-  if (!hasLeaveNotice(room.chat, oppUid)) {
-    updates[`chat/${newChatKey(db, roomId)}`] = { type: "leave", uid: oppUid, name: oppName };
+  // 방과 채팅은 서로 다른 곳에 있으므로 최상위 기준 경로로 모아 한 번에 쓴다.
+  const rootUpdates = {};
+  Object.keys(updates).forEach((k) => { rootUpdates[`rooms/${roomId}/${k}`] = updates[k]; });
+
+  if (!isLastLeaveNotice(oppUid)) {
+    const noticeKey = newChatKey(db, roomId);
+    rootUpdates[`chats/${roomId}/${noticeKey}`] = noticeEntry("leave", oppUid, oppName);
+    Object.assign(rootUpdates, trimRootUpdates(roomId, noticeKey));
   }
 
   presenceRole = null;
 
   for (let i = 0; i < 5; i++) {
     try {
-      await update(ref(db, `rooms/${roomId}`), updates);
+      await update(ref(db), rootUpdates);
       return;
     } catch (err) {
       console.error(`상대 이탈 정리 ${i + 1}번째 실패:`, err);
@@ -717,12 +729,5 @@ async function handleOpponentLeft() {
   // 그래도 안 되면 최소한 이 사람은 전투 화면에서 빠져나가게 한다.
   pushNotice("방을 정리하지 못했습니다. 대기실로 돌아갑니다.");
   goRoom();
-}
-
-// 나가는 본인과 남은 쪽이 동시에 알림을 남기지 않도록, 이미 있으면 넘어간다.
-function hasLeaveNotice(chat, uid) {
-  const keys = Object.keys(chat || {}).sort();
-  const last = keys.length ? chat[keys[keys.length - 1]] : null;
-  return !!(last && last.type === "leave" && last.uid === uid);
 }
 

@@ -1,10 +1,16 @@
 // 대기실 전용 실시간 채팅.
 //
-// 기록은 방 노드(rooms/{id}/chat) 안에만 두기 때문에 방이 사라지면 채팅도 같이 사라진다.
-// 방장이 바뀌거나 상대가 나가서 방이 1인 대기 상태로 돌아갈 때도 room.js에서 chat을 지운다.
-// (새로 들어온 사람에게 이전 사람의 대화가 보이면 안 되기 때문)
+// 기록은 방 노드가 아니라 chats/{방ID} 아래에 따로 둔다.
+// 방 노드(rooms)는 로비가 목록을 그려야 해서 접속자 누구나 읽을 수 있는데,
+// 채팅을 그 안에 두면 남의 방 대화까지 전부 읽혀버리기 때문이다.
+// chats/{방ID}는 그 방의 두 사람만 읽고 쓸 수 있게 규칙으로 막아두고,
+// 방이 사라질 때 같이 지워서 기록이 남지 않게 한다.
+//
+// 쓰기도 메시지 하나씩만 건드린다. 예전처럼 기록 전체를 다시 쓰면
+// "상대 이름으로 된 메시지"까지 같이 써야 해서, 규칙이 남의 이름을 사칭한
+// 메시지를 막을 수 없었다.
 import {
-  ref, push, update, onDisconnect, runTransaction
+  ref, push, update, onValue, onDisconnect
 } from "https://www.gstatic.com/firebasejs/12.18.0/firebase-database.js";
 import { pushNotice } from "./notice.js";
 
@@ -29,6 +35,91 @@ let shownKeys = new Set(); // 이미 화면에 그려진 메시지 키 (새로 �
 let typingSent = false;
 let typingTimer = null;
 
+// 채팅 데이터는 방 데이터와 따로 도착하므로 여기에 모아둔다.
+let chatCache = {};
+let chatWatching = false;
+let uiReady = false;
+let lastRoom = null;
+let lastIsHost = false;
+
+// ---------- 경로/키 ----------
+export function chatRef(database, room) {
+  return ref(database, `chats/${room}`);
+}
+
+// 채팅 키는 push가 만드는 시간순 ID다. Firebase가 서버 시간으로 보정해 만들어 주기 때문에
+// 양쪽 PC의 시계가 어긋나 있어도, 키를 정렬하면 "먼저 일어난 순"이 된다.
+// 그래서 채팅과 퇴장 알림이 거의 동시에 생겨도 순서가 뒤바뀌지 않는다.
+export function newChatKey(database, room) {
+  return push(chatRef(database, room)).key;
+}
+
+// ---------- 데이터 구독 ----------
+// 전투 화면처럼 채팅 UI가 없는 곳에서도 퇴장 알림이 중복되지 않았는지 봐야 해서,
+// 화면 없이 데이터만 구독할 수 있게 따로 열어둔다.
+export function watchChatData(database, room) {
+  if (chatWatching) return;
+  chatWatching = true;
+  db = db || database;
+  roomId = roomId || room;
+
+  onValue(chatRef(database, room), (snap) => {
+    chatCache = snap.val() || {};
+    if (uiReady && lastRoom) renderChat(lastRoom, lastIsHost);
+  }, (err) => {
+    // 방에서 빠지는 순간에는 읽을 권한이 사라지므로 여기로 온다 (정상 상황).
+    console.warn("채팅 구독 종료:", err && err.message);
+  });
+}
+
+// 나가는 본인과 남은 쪽이 동시에 알림을 남기지 않도록, 이미 있으면 넘어간다.
+export function isLastLeaveNotice(uid) {
+  const keys = Object.keys(chatCache).sort();
+  const last = keys.length ? chatCache[keys[keys.length - 1]] : null;
+  return !!(last && last.type === "leave" && last.uid === uid);
+}
+
+// ---------- 정리(오래된 메시지 삭제) ----------
+// 지우는 대상은 언제나 "가장 오래된 것들"이라, 양쪽이 동시에 정리해도
+// 방금 보낸 메시지가 사라질 일은 없다. 이미 지워진 것을 또 지워도 문제없다.
+function trimKeys(keys) {
+  const sorted = keys.slice().sort();
+  if (sorted.length < MAX_MESSAGES) return [];
+  return sorted.slice(0, sorted.length - KEEP_MESSAGES);
+}
+
+// 채팅 노드 기준의 정리 목록 (chats/{방ID} 아래에 바로 쓸 때)
+function trimUpdates(addedKey) {
+  const updates = {};
+  trimKeys(Object.keys(chatCache).concat(addedKey || [])).forEach((k) => { updates[k] = null; });
+  return updates;
+}
+
+// 최상위 기준의 정리 목록 (방 정리와 알림을 한 번에 쓸 때)
+export function trimRootUpdates(room, addedKey) {
+  const updates = {};
+  trimKeys(Object.keys(chatCache).concat(addedKey || [])).forEach((k) => {
+    updates[`chats/${room}/${k}`] = null;
+  });
+  return updates;
+}
+
+// ---------- 알림 ----------
+// 참가/퇴장/매치 종료 알림. 사람이 보낸 말이 아니라 방에 일어난 일이라 text가 없다.
+export function noticeEntry(type, uid, name) {
+  if (type === "match") return { type };
+  return { type, uid, name: name || "상대방" };
+}
+
+export async function writeNotice(database, room, type, info = {}) {
+  const key = info.key || newChatKey(database, room);
+  await update(chatRef(database, room), {
+    [key]: noticeEntry(type, info.uid, info.name),
+    ...trimUpdates(key)
+  });
+}
+
+// ---------- 초기화 ----------
 export function initChat(ctx) {
   db = ctx.db;
   roomId = ctx.roomId;
@@ -63,6 +154,9 @@ export function initChat(ctx) {
   inputEl.addEventListener("blur", () => setTyping(false));
   // 대기실을 벗어나거나 창이 닫히면 "입력 중" 표시가 남지 않도록 지운다.
   window.addEventListener("pagehide", () => setTyping(false));
+
+  uiReady = true;
+  watchChatData(ctx.db, ctx.roomId);
 }
 
 function setOpen(next) {
@@ -94,15 +188,13 @@ async function send() {
 
   const uid = getMyUid();
   const name = myName();
-  // 키는 push가 만들어 주는 시간순 ID를 쓰되, 실제 쓰기는 트랜잭션 안에서 한다.
-  // 그래야 "추가 + 오래된 것 정리"가 한 번에 이뤄져서 양쪽이 동시에 보내도 어긋나지 않는다.
-  const key = push(ref(db, `rooms/${roomId}/chat`)).key;
+  const key = newChatKey(db, roomId);
 
   try {
-    await runTransaction(ref(db, `rooms/${roomId}/chat`), (chat) => {
-      const next = chat || {};
-      next[key] = { uid, name, text };
-      return trimChat(next);
+    // 새 메시지 하나를 넣고, 넘치는 분량만 같은 쓰기에서 덜어낸다.
+    await update(chatRef(db, roomId), {
+      [key]: { uid, name, text },
+      ...trimUpdates(key)
     });
   } catch (err) {
     // 조용히 사라지면 보낸 줄 알기 때문에, 실패를 알리고 쓴 내용을 되돌려준다.
@@ -110,52 +202,6 @@ async function send() {
     inputEl.value = text;
     pushNotice("메시지를 보내지 못했습니다.");
   }
-}
-
-// ---------- 다른 화면(대기실/전투)에서 쓰는 도우미 ----------
-// 채팅 키는 push가 만드는 시간순 ID다. Firebase가 서버 시간으로 보정해 만들어 주기 때문에
-// 양쪽 PC의 시계가 어긋나 있어도, 키를 정렬하면 "먼저 일어난 순"이 된다.
-// 그래서 채팅과 퇴장 알림이 거의 동시에 생겨도 순서가 뒤바뀌지 않는다.
-export function newChatKey(database, room) {
-  return push(ref(database, `rooms/${room}/chat`)).key;
-}
-
-export function trimChat(chat) {
-  const next = chat || {};
-  const keys = Object.keys(next).sort();
-  if (keys.length >= MAX_MESSAGES) {
-    keys.slice(0, keys.length - KEEP_MESSAGES).forEach((k) => { delete next[k]; });
-  }
-  return next;
-}
-
-// 참가/퇴장 알림을 채팅 기록에 남긴다. 방을 정리하는 트랜잭션 안에서 호출한다.
-// 나가는 본인과 남아있는 쪽이 동시에 알림을 넣으려 할 수 있으므로,
-// 같은 사람의 같은 알림이 이미 마지막에 있으면 넣지 않는다.
-function addNotice(chat, type, { key, uid, name }) {
-  const next = chat || {};
-  const keys = Object.keys(next).sort();
-  const last = keys.length ? next[keys[keys.length - 1]] : null;
-  if (last && last.type === type && last.uid === uid) return next;
-
-  next[key] = { type, uid, name: name || "상대방" };
-  return trimChat(next);
-}
-
-export function addLeaveNotice(chat, info) {
-  return addNotice(chat, "leave", info);
-}
-
-export function addJoinNotice(chat, info) {
-  return addNotice(chat, "join", info);
-}
-
-// 매치가 끝나고 두 사람이 모두 대기실로 돌아왔을 때 남기는 알림.
-// 사람이 아니라 방에 일어난 일이라 uid가 없고, 매번 새로 남긴다.
-export function addMatchEndNotice(chat, { key }) {
-  const next = chat || {};
-  next[key] = { type: "match" };
-  return trimChat(next);
 }
 
 // ---------- 입력 중 표시 ----------
@@ -179,11 +225,14 @@ function setTyping(on) {
 
 // ---------- 그리기 ----------
 export function renderChat(room, isHost) {
+  lastRoom = room;
+  lastIsHost = isHost;
+
   const oppExists = isHost ? !!room.guestUid : !!room.hostUid;
   inputEl.disabled = !oppExists;
   inputEl.placeholder = oppExists ? "메시지를 입력하세요" : "상대가 들어오면 대화할 수 있습니다";
 
-  const chat = room.chat || {};
+  const chat = chatCache;
   // 새로 들어온 사람에게는 참가 이전의 대화가 보이면 안 된다.
   // 방에 남아있던 사람은 그대로 다 보이므로, 기록을 지우는 대신 각자의 시작 지점만 다르게 둔다.
   // (채팅 키는 시간순이라 "내 시작 키보다 뒤"인 것만 고르면 된다)
