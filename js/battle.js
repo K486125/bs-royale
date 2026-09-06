@@ -95,8 +95,13 @@ async function backToRoom(message) {
 
 async function goRoom() {
   // 내가 스스로 넘어가는 것임을 남겨야, 이 순간 잠깐 끊기는 것을 상대가 "나갔다"고 보지 않는다.
-  await setNavigating(true);
+  // 다만 이 기록이 늦어진다고 화면 이동이 막히면 안 되므로 오래 기다리지 않는다.
+  await Promise.race([setNavigating(true), wait(1500)]);
   window.location.href = `room.html?room=${roomId}`;
+}
+
+function wait(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 // 화면 이동으로 인한 접속 끊김과 창을 꺼버린 것을 구분하기 위한 표시.
@@ -605,14 +610,52 @@ function watchOpponentPresence(room, isHost) {
       showBattleLoading("대기실로 돌아가는 중...");
       handleOpponentLeft();
     }, 1000);
-  }, oppNavigating ? OPPONENT_GRACE_MS : OPPONENT_QUICK_MS);
+    // 이동 표시가 명시적으로 false일 때만 "창을 껐다"고 단정한다.
+    // 표시가 아예 없는 경우(예전 방 데이터, 쓰기 실패)에는 넉넉히 기다린다.
+  }, oppNavigating === false ? OPPONENT_QUICK_MS : OPPONENT_GRACE_MS);
 }
 
 async function handleOpponentLeft() {
   // 대기실로 돌아갔을 때 채팅에 퇴장 알림이 남아 있도록 여기서 같이 기록한다.
   const noticeKey = newChatKey(db, roomId);
 
-  await runTransaction(ref(db, `rooms/${roomId}`), (room) => {
+  let committed = false;
+  try {
+    const result = await cleanupTransaction(noticeKey);
+    committed = !!(result && result.committed);
+  } catch (err) {
+    console.error("상대 이탈 정리 실패:", err);
+  }
+
+  presenceRole = null;
+  if (committed) return;
+
+  // 트랜잭션이 중단되는 경우는 상대가 그 사이 돌아왔을 때다. 그때는 아무것도 하지 않는다.
+  const opponentStillGone = currentRoom
+    && (isHost ? currentRoom.guestOnline === false : currentRoom.hostOnline === false);
+  if (!opponentStillGone) return;
+
+  // 여기까지 왔다면 방 정리가 안 된 것이다. 이 상태로 두면 전투 화면에 갇히므로,
+  // 꼭 필요한 것(전투 종료)만 다시 시도한다. 그래도 안 되면 계속 재시도한다.
+  for (let i = 0; i < 5; i++) {
+    try {
+      await update(ref(db, `rooms/${roomId}`), {
+        battle: null,
+        hostReady: false,
+        guestReady: false
+      });
+      return;
+    } catch (err) {
+      console.error(`전투 정리 재시도 ${i + 1} 실패:`, err);
+      await wait(1500);
+    }
+  }
+  pushNotice("방을 정리하지 못했습니다. 대기실로 돌아갑니다.");
+  goRoom();
+}
+
+function cleanupTransaction(noticeKey) {
+  return runTransaction(ref(db, `rooms/${roomId}`), (room) => {
     if (!room) return room;
 
     if (room.hostUid === myUid) {
@@ -651,8 +694,6 @@ async function handleOpponentLeft() {
 
     return room;
   });
-
-  presenceRole = null;
 }
 
 function clearGuest(room) {

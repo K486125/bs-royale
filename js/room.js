@@ -136,8 +136,22 @@ function watchRoom() {
 
     // 둘 다 배치 화면으로 넘어가야 하는 시점 -> 대기실은 이제 볼 일이 없으니 바로 이동시킨다.
     if (room.battle) {
-      goToBattle();
-      return;
+      const oppUid = isHost ? room.guestUid : room.hostUid;
+      const oppOnline = isHost ? room.guestOnline : room.hostOnline;
+      const oppNavigating = isHost ? room.guestNavigating : room.hostNavigating;
+      // 화면 이동 중(navigating)이라 잠깐 끊긴 것과, 창을 꺼서 사라진 것을 구분한다.
+      const opponentGone = !oppUid || (oppOnline === false && oppNavigating === false);
+
+      if (!opponentGone) {
+        goToBattle();
+        return;
+      }
+      // 상대는 없는데 전투 데이터만 남은 경우(정리 실패 등). 혼자 전투 화면에 들어가면
+      // 빠져나올 방법이 없으므로 들어가지 않고 지운 뒤 대기실을 그대로 보여준다.
+      if (isHost) {
+        update(roomRef, { battle: null, hostReady: false, guestReady: false })
+          .catch((err) => console.error("남아있는 전투 데이터 정리 실패:", err));
+      }
     }
 
     // 둘 다 준비 완료되면 호스트가 대표로 배치 단계를 시작시킨다 (양쪽이 동시에 써서 충돌할 필요 없음).
@@ -530,7 +544,8 @@ function watchOpponentPresence(room, isHost) {
     opponentGoneTimer = null;
     pushNotice(`${oppName}님이 나갔습니다.`);
     handleOpponentLeft();
-  }, oppNavigating ? OPPONENT_GRACE_MS : OPPONENT_QUICK_MS);
+    // 표시가 아예 없으면(예전 데이터, 쓰기 실패) 섣불리 내보내지 않고 넉넉히 기다린다.
+  }, oppNavigating === false ? OPPONENT_QUICK_MS : OPPONENT_GRACE_MS);
 }
 
 // 상대가 확실히 나갔을 때, 남아있는 쪽이 방을 정리한다.
