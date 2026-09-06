@@ -24,6 +24,8 @@ function run(cmd, opts = {}) {
   execSync(cmd, { stdio: "inherit", ...opts });
 }
 
+const NEWLINE = String.fromCharCode(10);
+
 function runCapture(cmd) {
   return execSync(cmd, { encoding: "utf8" }).trim();
 }
@@ -56,12 +58,62 @@ try {
 run(`npm version ${bump} -m "chore: release v%s"`);
 
 // 4) 빌드 + GitHub Release 생성/업로드 (태그의 버전을 그대로 사용)
-run("npm run dist -- --publish always", {
-  env: { ...process.env, GH_TOKEN: ghToken }
-});
+//    100MB짜리 설치 파일 업로드가 중간에 끊기는 일이 있어서, 실패하면 다시 시도한다.
+//    (이미 올라간 파일은 덮어쓰므로 다시 돌려도 안전하다)
+const buildEnv = { env: { ...process.env, GH_TOKEN: ghToken } };
+let published = false;
+for (let attempt = 1; attempt <= 3; attempt++) {
+  try {
+    run("npm run dist -- --publish always", buildEnv);
+    published = true;
+    break;
+  } catch (e) {
+    console.error(`\n업로드가 실패했습니다 (${attempt}/3). 다시 시도합니다...`);
+  }
+}
+if (!published) {
+  console.error("빌드/업로드가 계속 실패했습니다. 위 로그를 확인하세요.");
+  process.exit(1);
+}
 
-// 5) 커밋과 태그를 원격에 반영
+// 5) 정말 다 올라갔는지 확인한다.
+//    특히 latest.yml이 빠지면 기존 사용자에게 업데이트가 가지 않는데, 로그만 봐서는 알아채기 어렵다.
+const version = require("../package.json").version;
+const tag = `v${version}`;
+const localFile = {
+  [`BS-Royale-Setup-${version}.exe`]: `dist/BS Royale Setup ${version}.exe`,
+  [`BS-Royale-Setup-${version}.exe.blockmap`]: `dist/BS Royale Setup ${version}.exe.blockmap`,
+  "latest.yml": "dist/latest.yml"
+};
+const required = Object.keys(localFile);
+
+function uploadedAssets() {
+  const out = runCapture(`${gh} release view ${tag} --json assets --jq ".assets[].name"`);
+  return out.split(NEWLINE).map((n) => n.trim());
+}
+
+let missing = required.filter((name) => !uploadedAssets().includes(name));
+if (missing.length > 0) {
+  console.log(`\n빠진 파일이 있어 직접 올립니다: ${missing.join(", ")}`);
+  for (const name of missing) {
+    run(`${gh} release upload ${tag} "${localFile[name]}" --clobber`);
+  }
+  missing = required.filter((name) => !uploadedAssets().includes(name));
+  if (missing.length > 0) {
+    console.error(`\n아직 올라가지 않은 파일: ${missing.join(", ")}`);
+    console.error("이 상태로는 기존 사용자에게 업데이트가 가지 않습니다. 다시 실행하세요.");
+    process.exit(1);
+  }
+}
+console.log(`\n업로드 확인 완료: ${required.join(", ")}`);
+
+// 6) 커밋과 태그를 원격에 반영
+//    (릴리스를 만들 때 GitHub이 태그를 먼저 만들어두는 경우가 있어, 태그 푸시 실패는 넘어간다)
 run("git push");
-run("git push --tags");
+try {
+  run("git push --tags");
+} catch (e) {
+  console.log("(태그는 이미 원격에 있습니다)");
+}
 
 console.log("\n릴리스 완료. GitHub Releases에서 확인하세요: https://github.com/K486125/bs-royale/releases");
