@@ -3,6 +3,7 @@ import { unitFrameClass } from "./unit-colors.js";
 import { playSelect } from "./sfx.js";
 import { newChatKey, addLeaveNotice } from "./chat.js";
 import { initServerTime, serverNow, serverTimeReady, whenServerTime } from "./server-time.js";
+import { pushNotice } from "./notice.js";
 import { initializeApp } from "https://www.gstatic.com/firebasejs/12.18.0/firebase-app.js";
 import {
   getAuth, signInAnonymously, onAuthStateChanged,
@@ -68,16 +69,45 @@ function backToLobby(message) {
   setTimeout(() => { window.location.href = "index.html"; }, message ? 1200 : 0);
 }
 
+function showBattleLoading(text) {
+  loadingOverlay.querySelector(".loading-text").textContent = text;
+  loadingOverlay.classList.remove("hidden");
+  battleMain.classList.add("hidden");
+}
+
 let leavingBattle = false;
 // 전투가 사라졌을 뿐 방에는 그대로 속해 있는 상태 -> 로비가 아니라 대기실로 돌아간다.
 // (상대가 나가면 남은 쪽이 battle을 지우므로 이 경로로 들어온다)
-function backToRoom(message) {
+async function backToRoom(message) {
   if (leavingBattle) return;
   leavingBattle = true;
-  if (message) showToast(message);
-  setTimeout(() => {
-    window.location.href = `room.html?room=${roomId}`;
-  }, message ? 1200 : 0);
+
+  if (message) {
+    pushNotice(message);
+    setTimeout(() => {
+      showBattleLoading("대기실로 돌아가는 중...");
+      goRoom();
+    }, 1000);
+    return;
+  }
+  goRoom();
+}
+
+async function goRoom() {
+  // 내가 스스로 넘어가는 것임을 남겨야, 이 순간 잠깐 끊기는 것을 상대가 "나갔다"고 보지 않는다.
+  await setNavigating(true);
+  window.location.href = `room.html?room=${roomId}`;
+}
+
+// 화면 이동으로 인한 접속 끊김과 창을 꺼버린 것을 구분하기 위한 표시.
+async function setNavigating(on) {
+  if (!presenceRole) return;
+  try {
+    await update(ref(db, `rooms/${roomId}`), { [`${presenceRole}Navigating`]: on });
+  } catch (err) {
+    // 실패하면 상대는 기존처럼 넉넉한 대기시간을 쓰게 되므로 그대로 진행한다.
+    console.error("이동 표시 실패:", err);
+  }
 }
 
 if (!roomId) {
@@ -124,7 +154,7 @@ function watchRoom() {
     if (!room.battle) {
       // 정상적으로 매치가 끝나서 지워진 경우와, 상대가 나가서 지워진 경우를 구분한다.
       const opponentGone = isHost ? !room.guestUid : !room.hostUid;
-      const leftMessage = (!matchFinished && mapBuilt && opponentGone)
+      const leftMessage = (!matchFinished && !leaveAnnounced && mapBuilt && opponentGone)
         ? "상대방이 나갔습니다. 대기실로 돌아갑니다."
         : "";
       backToRoom(leftMessage);
@@ -541,14 +571,22 @@ function updatePresence(isHost) {
   const seenRef = ref(db, `rooms/${roomId}/lastSeen`);
   set(seenRef, serverTimestamp());
   onDisconnect(seenRef).set(serverTimestamp());
+
+  // 도착했으므로 이동 중 표시를 끈다.
+  update(ref(db, `rooms/${roomId}`), { [`${role}Navigating`]: false }).catch(() => {});
 }
 
+// 상대가 화면을 이동하는 중이라고 표시해 뒀다면 넉넉히 기다리고,
+// 그런 표시 없이 끊겼다면(=창을 꺼버린 경우) 바로 판단한다.
 const OPPONENT_GRACE_MS = 6000;
+const OPPONENT_QUICK_MS = 400;
 let opponentGoneTimer = null;
+let leaveAnnounced = false;
 
 function watchOpponentPresence(room, isHost) {
   const oppUid = isHost ? room.guestUid : room.hostUid;
   const oppOnline = isHost ? room.guestOnline : room.hostOnline;
+  const oppNavigating = isHost ? room.guestNavigating : room.hostNavigating;
 
   if (!oppUid || oppOnline !== false) {
     clearTimeout(opponentGoneTimer);
@@ -556,10 +594,18 @@ function watchOpponentPresence(room, isHost) {
     return;
   }
   if (opponentGoneTimer) return;
+
+  const oppName = (isHost ? room.guestName : room.hostName) || "상대방";
   opponentGoneTimer = setTimeout(() => {
     opponentGoneTimer = null;
-    handleOpponentLeft();
-  }, OPPONENT_GRACE_MS);
+    // 먼저 알리고, 1초 뒤에 정리하면서 대기실로 넘어간다.
+    leaveAnnounced = true;
+    pushNotice(`${oppName}님이 나갔습니다.`);
+    setTimeout(() => {
+      showBattleLoading("대기실로 돌아가는 중...");
+      handleOpponentLeft();
+    }, 1000);
+  }, oppNavigating ? OPPONENT_GRACE_MS : OPPONENT_QUICK_MS);
 }
 
 async function handleOpponentLeft() {
@@ -612,6 +658,7 @@ async function handleOpponentLeft() {
 function clearGuest(room) {
   room.guestUid = null;
   room.guestChatSince = null;
+  room.guestNavigating = null;
   room.guestName = null;
   room.guestAvatar = null;
   room.guestUnits = null;

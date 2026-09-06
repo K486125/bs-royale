@@ -3,6 +3,7 @@ import { unitFrameClass, unitNumber } from "./unit-colors.js";
 import { playSelect } from "./sfx.js";
 import { initChat, renderChat, newChatKey, addLeaveNotice, addJoinNotice, addMatchEndNotice } from "./chat.js";
 import { initServerTime, serverNow, serverTimeReady, whenServerTime } from "./server-time.js";
+import { pushNotice } from "./notice.js";
 import { initializeApp } from "https://www.gstatic.com/firebasejs/12.18.0/firebase-app.js";
 import {
   getAuth, signInAnonymously, onAuthStateChanged,
@@ -156,11 +157,11 @@ function watchRoom() {
     const myReady = currentIsHost ? currentRoom.hostReady : currentRoom.guestReady;
     const myUnits = currentIsHost ? currentRoom.hostUnits : currentRoom.guestUnits;
     if (!myReady && !hasAllUnits(myUnits)) {
-      showToast(`실패: 유닛을 모두 장착 하세요 (${unitCount(myUnits)}/3)`);
+      pushNotice(`실패: 유닛을 모두 장착 하세요 (${unitCount(myUnits)}/3)`);
       return;
     }
     if (!myReady && hasDuplicateUnits(myUnits)) {
-      showToast("실패: 중복 유닛을 확인하세요.");
+      pushNotice("실패: 중복 유닛을 확인하세요.");
       return;
     }
     // 트랜잭션은 재시도 시 낙관적 업데이트가 여러 번 발생해 버튼이 깜빡이므로,
@@ -192,10 +193,21 @@ function maybeAnnounceMatchEnd(room, isHost) {
 }
 
 let navigatingToBattle = false;
-function goToBattle() {
+async function goToBattle() {
   if (navigatingToBattle) return;
   navigatingToBattle = true;
+  // 이동하는 동안 잠깐 끊기는 것을 상대가 "나갔다"고 오해하지 않도록 표시를 남긴다.
+  await setNavigating(true);
   window.location.href = `battle.html?room=${roomId}`;
+}
+
+async function setNavigating(on) {
+  if (!presenceRole) return;
+  try {
+    await update(ref(db, `rooms/${roomId}`), { [`${presenceRole}Navigating`]: on });
+  } catch (err) {
+    console.error("이동 표시 실패:", err);
+  }
 }
 
 function unitAt(units, i) {
@@ -489,15 +501,21 @@ function updatePresence(isHost) {
   const seenRef = ref(db, `rooms/${roomId}/lastSeen`);
   set(seenRef, serverTimestamp());
   onDisconnect(seenRef).set(serverTimestamp());
+
+  // 도착했으므로 이동 중 표시를 끈다.
+  update(ref(db, `rooms/${roomId}`), { [`${role}Navigating`]: false }).catch(() => {});
 }
 
-// 페이지 이동으로 잠깐 끊기는 시간(1초 안팎)보다 넉넉히 길게 잡는다.
+// 상대가 화면 이동 중이라고 표시해 뒀으면 넉넉히 기다리고(이동에 1초 안팎 걸린다),
+// 그런 표시 없이 끊겼다면 창을 꺼버린 것이므로 바로 처리한다.
 const OPPONENT_GRACE_MS = 6000;
+const OPPONENT_QUICK_MS = 400;
 let opponentGoneTimer = null;
 
 function watchOpponentPresence(room, isHost) {
   const oppUid = isHost ? room.guestUid : room.hostUid;
   const oppOnline = isHost ? room.guestOnline : room.hostOnline;
+  const oppNavigating = isHost ? room.guestNavigating : room.hostNavigating;
 
   if (!oppUid || oppOnline !== false) {
     clearTimeout(opponentGoneTimer);
@@ -505,10 +523,13 @@ function watchOpponentPresence(room, isHost) {
     return;
   }
   if (opponentGoneTimer) return;
+
+  const oppName = (isHost ? room.guestName : room.hostName) || "상대방";
   opponentGoneTimer = setTimeout(() => {
     opponentGoneTimer = null;
+    pushNotice(`${oppName}님이 나갔습니다.`);
     handleOpponentLeft();
-  }, OPPONENT_GRACE_MS);
+  }, oppNavigating ? OPPONENT_GRACE_MS : OPPONENT_QUICK_MS);
 }
 
 // 상대가 확실히 나갔을 때, 남아있는 쪽이 방을 정리한다.
@@ -565,6 +586,7 @@ function clearTyping(room) {
 function clearGuest(room) {
   room.guestUid = null;
   room.guestChatSince = null;
+  room.guestNavigating = null;
   room.guestName = null;
   room.guestAvatar = null;
   room.guestUnits = null;

@@ -47,6 +47,8 @@
         "hostChatSince": { ".validate": "newData.isString() && newData.val().length <= 32" },
         "guestChatSince": { ".validate": "newData.isString() && newData.val().length <= 32" },
         "matchEndPending": { ".validate": "newData.isBoolean()" },
+        "hostNavigating": { ".validate": "newData.isBoolean()" },
+        "guestNavigating": { ".validate": "newData.isBoolean()" },
         "hostTyping": { ".validate": "newData.isBoolean()" },
         "guestTyping": { ".validate": "newData.isBoolean()" },
 
