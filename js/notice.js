@@ -1,5 +1,6 @@
-// 화면 맨 위에 세로로 쌓이는 알림 바.
+// 화면 한가운데에 떠오르는 알림 문구.
 // 토스트(화면 아래에 하나만 잠깐 뜨는 것)와 달리, 놓치면 안 되는 소식(초대 거절/만료)에 쓴다.
+// 배경 바 없이 글자만 보여주고, 무엇보다 위에 그려진다.
 const STACK_ID = "notice-stack";
 const LIFETIME_MS = 6000;
 const MAX_NOTICES = 4;
@@ -11,8 +12,6 @@ export function pushNotice(text, kind = "") {
   const el = document.createElement("div");
   el.className = "notice-bar" + (kind ? " " + kind : "");
   el.textContent = text;
-  // 눌러서 바로 치울 수 있게 한다.
-  el.addEventListener("click", () => remove(el));
   stack.appendChild(el);
 
   // 나타나는 애니메이션은 다음 프레임에 클래스를 붙여야 동작한다.
@@ -27,6 +26,7 @@ export function pushNotice(text, kind = "") {
 function remove(el) {
   if (!el || el.dataset.removing) return;
   el.dataset.removing = "1";
+  // show를 떼면 나타날 때의 움직임이 그대로 거꾸로 재생된다 (아래로 내려가며 사라짐).
   el.classList.remove("show");
-  setTimeout(() => el.remove(), 250);
+  setTimeout(() => el.remove(), 320);
 }

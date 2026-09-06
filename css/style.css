@@ -1324,42 +1324,41 @@ body.battle-page {
   background: linear-gradient(90deg, #ffd36b, #ff9d2f);
 }
 
-/* ---------- 화면 맨 위에 쌓이는 알림 바 ---------- */
+/* ---------- 화면 한가운데에 떠오르는 알림 문구 ---------- */
 .notice-stack {
   position: fixed;
-  top: calc(var(--titlebar-h) + 12px);
+  top: 50%;
   left: 50%;
-  transform: translateX(-50%);
-  width: min(560px, calc(100vw - 32px));
+  transform: translate(-50%, -50%);
+  width: min(640px, calc(100vw - 32px));
   display: flex;
   flex-direction: column;
-  align-items: stretch;
-  gap: 8px;
-  z-index: 400;
-  pointer-events: none;
+  align-items: center;
+  gap: 10px;
+  z-index: 900; /* 무엇보다 위에 */
+  pointer-events: none; /* 글자만 떠 있고 클릭은 그대로 통과시킨다 */
 }
 .notice-bar {
-  pointer-events: auto;
-  cursor: pointer;
-  box-sizing: border-box;
-  padding: 11px 16px;
-  border-radius: 8px;
-  background: #4a4e57;
-  border: 2px solid #6b7079;
-  box-shadow: 0 4px 0 #23262d, 0 6px 16px rgba(0,0,0,.45);
   color: #fff;
-  font-size: 14px;
+  font-size: 19px;
   font-weight: 900;
   text-align: center;
+  line-height: 1.4;
+  /* 검정 외곽선 + 아래로 떨어지는 그림자 */
   text-shadow:
-    -1px -1px 0 #000, 1px -1px 0 #000,
-    -1px  1px 0 #000, 1px  1px 0 #000,
-    0 1px 0 #000;
+    -2px -2px 0 #000, 2px -2px 0 #000,
+    -2px  2px 0 #000, 2px  2px 0 #000,
+    0 2px 0 #000, 0 4px 0 rgba(0,0,0,.6),
+    0 8px 12px rgba(0,0,0,.75);
   opacity: 0;
-  transform: translateY(-10px);
-  transition: opacity .2s ease, transform .2s ease;
+  transform: translateY(26px) scale(.96);
+  /* 아래에서 위로 슉 올라오며 나타나고, 사라질 때는 그대로 거꾸로 */
+  transition: opacity .28s ease, transform .32s cubic-bezier(.16,.9,.3,1);
 }
-.notice-bar.show { opacity: 1; transform: none; }
+.notice-bar.show {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+}
 @media (max-width: 700px) {
-  .notice-bar { font-size: 13px; padding: 9px 12px; }
+  .notice-bar { font-size: 16px; }
 }
