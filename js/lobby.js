@@ -397,25 +397,35 @@ createRoomBtn.addEventListener("click", async () => {
   const roomRef = push(ref(db, "rooms"));
   // 방을 만든 사람도 "대기실에 참가했습니다" 알림으로 채팅을 시작한다.
   const joinKey = newChatKey(db, roomRef.key);
-  await set(roomRef, {
-    chat: addJoinNotice(null, { key: joinKey, uid: myUid, name: myName }),
-    hostChatSince: joinKey,
-    hostUid: myUid,
-    hostName: myName,
-    hostAvatar: myAvatar,
-    hostUnits: defaultUnits(),
-    hostReady: false,
-    hostOnline: true,
-    guestUid: null,
-    guestName: null,
-    guestAvatar: null,
-    guestUnits: null,
-    guestReady: false,
-    playerCount: 1,
-    status: "waiting",
-    createdAt: serverTimestamp(),
-    lastSeen: serverTimestamp()
-  });
+  try {
+    await set(roomRef, {
+      chat: addJoinNotice(null, { key: joinKey, uid: myUid, name: myName }),
+      hostChatSince: joinKey,
+      hostUid: myUid,
+      hostName: myName,
+      hostAvatar: myAvatar,
+      hostUnits: defaultUnits(),
+      hostReady: false,
+      hostOnline: true,
+      guestUid: null,
+      guestName: null,
+      guestAvatar: null,
+      guestUnits: null,
+      guestReady: false,
+      playerCount: 1,
+      status: "waiting",
+      createdAt: serverTimestamp(),
+      lastSeen: serverTimestamp()
+    });
+  } catch (err) {
+    // 쓰기가 거부되면(주로 보안 규칙) 조용히 멈춰 있지 않고 이유를 보여준다.
+    console.error("방 생성 실패:", err);
+    hideLoading();
+    createRoomBtn.disabled = false;
+    createRoomBtn.textContent = "방 만들기";
+    showToast("방을 만들지 못했습니다: " + (err && err.message ? err.message : err));
+    return;
+  }
 
   window.location.href = `room.html?room=${roomRef.key}`;
 });
