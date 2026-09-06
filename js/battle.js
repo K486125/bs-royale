@@ -20,6 +20,7 @@ const BOUNDARY_ROW = 3; // 세로 7칸 중 가운데 한 줄 = 배치 불가 경
 const PLACING_MS = 60000;
 const LOADING_MIN_MS = 1400; // 로딩 화면 최소 노출 시간 (버벅거림 방지용 체감 대기)
 const MATCH_END_MS = 1800; // "매치 종료" 문구를 보여주는 시간
+const LEAVE_NOTICE_MS = 1100; // 상대 퇴장 알림을 보여주는 시간 (이후 로딩 화면)
 
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
@@ -83,11 +84,10 @@ async function backToRoom(message) {
   leavingBattle = true;
 
   if (message) {
-    pushNotice(message);
-    setTimeout(() => {
-      showBattleLoading("대기실로 돌아가는 중...");
-      goRoom();
-    }, 1000);
+    // 알림이 완전히 사라진 뒤에 로딩 화면을 띄운다.
+    await pushNotice(message, { duration: LEAVE_NOTICE_MS });
+    showBattleLoading("대기실로 돌아가는 중...");
+    goRoom();
     return;
   }
   goRoom();
@@ -605,11 +605,11 @@ function watchOpponentPresence(room, isHost) {
     opponentGoneTimer = null;
     // 먼저 알리고, 1초 뒤에 정리하면서 대기실로 넘어간다.
     leaveAnnounced = true;
-    pushNotice(`${oppName}님이 나갔습니다.`);
-    setTimeout(() => {
+    // 알림이 떠올랐다 사라지는 것까지 보여준 다음 로딩 화면으로 넘어간다.
+    pushNotice(`${oppName}님이 나갔습니다.`, { duration: LEAVE_NOTICE_MS }).then(() => {
       showBattleLoading("대기실로 돌아가는 중...");
       handleOpponentLeft();
-    }, 1000);
+    });
     // 이동 표시가 명시적으로 false일 때만 "창을 껐다"고 단정한다.
     // 표시가 아예 없는 경우(예전 방 데이터, 쓰기 실패)에는 넉넉히 기다린다.
   }, oppNavigating === false ? OPPONENT_QUICK_MS : OPPONENT_GRACE_MS);

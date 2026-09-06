@@ -6,6 +6,8 @@
 //   group    같은 그룹의 알림은 하나만 남는다. 새로 부르면 그 자리에서 문구를 바꾸고
 //            등장 애니메이션을 처음부터 다시 재생한다 (버튼 연타 대응).
 //   duration 표시 시간 (ms)
+// 반환값: 알림이 사라지는 애니메이션까지 끝나는 시점에 resolve되는 Promise.
+//        (알림이 완전히 사라진 뒤에 로딩 화면으로 넘어가고 싶을 때 쓴다)
 const STACK_ID = "notice-stack";
 const LIFETIME_MS = 3000;
 const EXIT_MS = 320;
@@ -13,7 +15,7 @@ const MAX_NOTICES = 4;
 
 export function pushNotice(text, options = {}) {
   const stack = document.getElementById(STACK_ID);
-  if (!stack) return;
+  if (!stack) return Promise.resolve();
 
   const group = options.group || "";
   const duration = options.duration || LIFETIME_MS;
@@ -26,7 +28,7 @@ export function pushNotice(text, options = {}) {
     current.textContent = text;
     replay(current);
     scheduleRemoval(current, duration);
-    return;
+    return done(duration);
   }
 
   const el = document.createElement("div");
@@ -45,6 +47,12 @@ export function pushNotice(text, options = {}) {
   while (list.length > MAX_NOTICES) remove(list.shift());
 
   scheduleRemoval(el, duration);
+  return done(duration);
+}
+
+// 표시 시간 + 사라지는 애니메이션 시간 (+ 여유를 조금 둬서 확실히 사라진 뒤에 resolve)
+function done(duration) {
+  return new Promise((resolve) => setTimeout(resolve, duration + EXIT_MS + 40));
 }
 
 function alive(stack) {
