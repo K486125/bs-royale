@@ -744,19 +744,26 @@ body.battle-page {
   overflow: hidden;
   display: flex;
   flex-direction: column;
-  --tile-size: 64px;
+
+  /* 타일 크기는 "원하는 최대 크기"와 "창에 실제로 들어가는 크기" 중 작은 값을 쓴다.
+     빼는 값은 맵을 뺀 나머지가 차지하는 높이(제목표시줄 32 + 바깥 여백 40 + 타이머 46
+     + 타이머와 맵 사이 14 + 맵 자체 여백/테두리 26 + 바닥에 남길 여유 8)와
+     타일 사이 간격(3px x 6)의 합이다. 가로도 같은 방식으로 사이드바를 피한다. */
+  --tile-max: 64px;
+  --tile-size: min(var(--tile-max), calc((100vh - 184px) / 7), calc((100vw - 372px) / 7));
   --unit-card: 112px;
 }
 @media (min-width: 1300px) {
   body.battle-page {
-    --tile-size: 84px;
+    --tile-max: 84px;
+    --tile-size: min(var(--tile-max), calc((100vh - 200px) / 7), calc((100vw - 508px) / 7));
     --unit-card: 168px;
   }
 }
-/* 세로로 여유가 있는 화면(1080p 이상)에서만 더 키운다 - 768p 화면에서 맵이 잘리지 않도록 */
+/* 세로로 여유가 있는 화면에서만 더 키운다 */
 @media (min-width: 1300px) and (min-height: 900px) {
   body.battle-page {
-    --tile-size: 96px;
+    --tile-max: 96px;
     --unit-card: 184px;
   }
 }
