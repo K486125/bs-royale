@@ -230,28 +230,16 @@
     box-shadow: 0 0 0 var(--accent-edge), 0 5px 12px rgba(0,0,0,.4);
   }
 
-  /* 버튼 안에 들어가는 ON/OFF 스위치 */
+  /* 버튼 안에 들어가는 켜짐/꺼짐 스위치 */
   .music-btn .toggle {
     position: relative;
-    width: 58px;
+    width: 46px;
     height: 28px;
     border-radius: 999px;
     background: #a07800;
     border: 2px solid #8a6a00;
     box-shadow: inset 0 2px 4px rgba(0,0,0,.4);
     transition: background .25s ease, border-color .25s ease;
-  }
-  /* 꺼져 있을 때는 오른쪽에 OFF, 켜져 있을 때는 왼쪽에 ON (손잡이 반대편) */
-  .music-btn .toggle::before {
-    content: "OFF";
-    position: absolute;
-    top: 50%;
-    right: 7px;
-    transform: translateY(-50%);
-    font-size: 10px;
-    font-weight: 900;
-    letter-spacing: .5px;
-    color: #fff1c9;
   }
   .music-btn .knob {
     position: absolute;
@@ -269,14 +257,8 @@
     background: #2fa84f;
     border-color: #1c7a37;
   }
-  .music-btn.on .toggle::before {
-    content: "ON";
-    right: auto;
-    left: 9px;
-    color: #eaffef;
-  }
   .music-btn.on .knob {
-    left: 32px;
+    left: 22px;
     background: #fff;
   }
 
