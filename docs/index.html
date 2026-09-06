@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>BS Royale - 다운로드</title>
+<link rel="icon" href="icon.png">
+<meta name="description" content="친구와 1대1로 겨루는 실시간 대전 게임. Windows용 무료 다운로드.">
+<style>
+  /* 앱(css/style.css)의 색과 버튼 모양을 그대로 가져왔다 */
+  :root {
+    --accent: #ffcc33;
+    --accent-edge: #b58900;
+    --text: #eef0f8;
+  }
+
+  * { box-sizing: border-box; }
+
+  html, body {
+    height: 100%;
+    margin: 0;
+  }
+
+  body {
+    font-family: "Segoe UI", "Malgun Gothic", sans-serif;
+    color: var(--text);
+    background: #0a0d1e;
+    overflow: hidden;
+  }
+
+  /* 배경 영상: 화면을 잘라내며 꽉 채운다 */
+  .bg-video {
+    position: fixed;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    z-index: -2;
+    pointer-events: none;
+  }
+
+  /* 글자가 묻히지 않도록 영상 위에 어두운 막을 한 겹 덮는다 */
+  .bg-shade {
+    position: fixed;
+    inset: 0;
+    z-index: -1;
+    background: radial-gradient(circle at 50% 45%, rgba(0,0,0,.15), rgba(0,0,0,.62) 75%);
+    pointer-events: none;
+  }
+
+  main {
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 26px;
+    padding: 24px;
+    text-align: center;
+  }
+
+  .logo {
+    width: 132px;
+    height: 132px;
+    filter: drop-shadow(0 8px 16px rgba(0,0,0,.55));
+  }
+
+  /* 앱의 "1대1 대전" 제목과 같은 압출 그림자 */
+  h1 {
+    margin: 0;
+    font-size: clamp(40px, 9vw, 92px);
+    font-weight: 900;
+    letter-spacing: 2px;
+    line-height: 1.1;
+    text-shadow:
+      -2px -2px 0 #000, 2px -2px 0 #000,
+      -2px  2px 0 #000, 2px  2px 0 #000,
+      0 2px 0 #000, 0 5px 0 #000, 0 8px 0 #000,
+      0 16px 18px rgba(0,0,0,.45);
+  }
+
+  .tagline {
+    margin: 0;
+    font-size: clamp(14px, 2.2vw, 20px);
+    font-weight: 800;
+    color: #dfe4ff;
+    text-shadow: 0 2px 0 #000, 0 4px 10px rgba(0,0,0,.6);
+  }
+
+  /* 앱의 노란 버튼(.btn)을 크게 키운 형태 */
+  .download-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 12px;
+    background: var(--accent);
+    color: #241a00;
+    border: 4px solid var(--accent-edge);
+    border-radius: 14px;
+    padding: 20px 44px;
+    font-family: inherit;
+    font-size: clamp(18px, 3vw, 26px);
+    font-weight: 900;
+    text-decoration: none;
+    cursor: pointer;
+    box-shadow: 0 6px 0 var(--accent-edge), 0 12px 24px rgba(0,0,0,.45);
+    transition: transform .06s ease, box-shadow .06s ease, filter .15s ease;
+  }
+  .download-btn:hover { filter: brightness(1.06); }
+  .download-btn:active {
+    transform: translateY(6px);
+    box-shadow: 0 0 0 var(--accent-edge), 0 6px 14px rgba(0,0,0,.4);
+  }
+  .download-btn .arrow { font-size: 1.1em; }
+
+  .version {
+    margin: 0;
+    font-size: 14px;
+    font-weight: 700;
+    color: #c6cdf0;
+    text-shadow: 0 2px 4px rgba(0,0,0,.8);
+  }
+
+  /* 영상 소리 켜기/끄기 (브라우저는 소리 있는 자동재생을 막으므로 반드시 필요하다) */
+  .sound-btn {
+    position: fixed;
+    right: 20px;
+    bottom: 20px;
+    width: 52px;
+    height: 52px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 22px;
+    background: rgba(26, 30, 51, .78);
+    color: #fff;
+    border: 3px solid #3a4480;
+    border-radius: 12px;
+    cursor: pointer;
+    box-shadow: 0 4px 0 #151a38;
+    transition: transform .06s ease;
+  }
+  .sound-btn:active { transform: translateY(4px); box-shadow: none; }
+
+  .repo-link {
+    position: fixed;
+    left: 20px;
+    bottom: 22px;
+    font-size: 13px;
+    font-weight: 700;
+    color: #b9c1e6;
+    text-decoration: none;
+    text-shadow: 0 2px 4px rgba(0,0,0,.8);
+  }
+  .repo-link:hover { color: #fff; }
+
+  @media (max-width: 600px) {
+    main { gap: 18px; }
+    .logo { width: 92px; height: 92px; }
+    .download-btn { padding: 16px 30px; }
+    .sound-btn { width: 44px; height: 44px; font-size: 18px; right: 14px; bottom: 14px; }
+    .repo-link { left: 14px; bottom: 16px; }
+  }
+</style>
+</head>
+<body>
+
+<video id="bg" class="bg-video" autoplay loop muted playsinline preload="auto">
+  <source src="BS_BGM.mp4" type="video/mp4">
+</video>
+<div class="bg-shade"></div>
+
+<main>
+  <img class="logo" src="icon.png" alt="">
+  <h1>BS ROYALE</h1>
+  <p class="tagline">친구와 1대1로 겨루는 실시간 대전 게임</p>
+
+  <a id="download" class="download-btn" href="https://github.com/K486125/bs-royale/releases/latest">
+    <span class="arrow">⬇</span><span>Windows용 다운로드</span>
+  </a>
+  <p class="version" id="version">최신 버전을 확인하는 중...</p>
+</main>
+
+<button id="sound" class="sound-btn" title="소리 켜기" aria-label="소리 켜기">🔇</button>
+<a class="repo-link" href="https://github.com/K486125/bs-royale" target="_blank" rel="noopener">GitHub에서 보기</a>
+
+<script>
+  const REPO = "K486125/bs-royale";
+
+  // ---------- 배경 영상 소리 ----------
+  // 브라우저는 소리 있는 자동재생을 막기 때문에, 음소거로 시작하고
+  // 사용자가 화면을 한 번 건드리면 그때 소리를 켠다.
+  const video = document.getElementById("bg");
+  const soundBtn = document.getElementById("sound");
+
+  function setMuted(muted) {
+    video.muted = muted;
+    soundBtn.textContent = muted ? "🔇" : "🔊";
+    soundBtn.title = muted ? "소리 켜기" : "소리 끄기";
+    soundBtn.setAttribute("aria-label", soundBtn.title);
+    if (!muted) video.play().catch(() => {});
+  }
+
+  soundBtn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    setMuted(!video.muted);
+  });
+
+  // 첫 클릭(또는 키 입력) 한 번으로 소리가 켜지게 한다. 다운로드 버튼 클릭은 제외.
+  function unmuteOnce(e) {
+    if (e.target.closest && e.target.closest("a, button")) return;
+    setMuted(false);
+    document.removeEventListener("click", unmuteOnce);
+    document.removeEventListener("keydown", unmuteOnce);
+  }
+  document.addEventListener("click", unmuteOnce);
+  document.addEventListener("keydown", unmuteOnce);
+
+  // ---------- 최신 설치 파일 연결 ----------
+  // 버전이 올라가도 이 페이지를 고칠 필요가 없도록, 최신 릴리스를 물어봐서 링크를 채운다.
+  const link = document.getElementById("download");
+  const versionText = document.getElementById("version");
+
+  fetch(`https://api.github.com/repos/${REPO}/releases/latest`)
+    .then((res) => (res.ok ? res.json() : Promise.reject(res.status)))
+    .then((release) => {
+      const setup = (release.assets || []).find((a) => a.name.endsWith(".exe"));
+      if (setup) link.href = setup.browser_download_url;
+
+      const size = setup ? ` · ${Math.round(setup.size / 1024 / 1024)}MB` : "";
+      versionText.textContent = `최신 버전 ${release.tag_name} · Windows 10/11${size}`;
+    })
+    .catch(() => {
+      // 조회에 실패해도 버튼은 릴리스 페이지로 이동하므로 다운로드는 가능하다.
+      versionText.textContent = "Windows 10/11 · 릴리스 페이지에서 받기";
+    });
+</script>
+
+</body>
+</html>
