@@ -113,6 +113,10 @@ function watchRoom() {
   readyBtn.addEventListener("click", () => {
     const myReady = currentIsHost ? currentRoom.hostReady : currentRoom.guestReady;
     const myUnits = currentIsHost ? currentRoom.hostUnits : currentRoom.guestUnits;
+    if (!myReady && !hasAllUnits(myUnits)) {
+      showToast("유닛 3개를 모두 선택해야 준비할 수 있습니다.");
+      return;
+    }
     if (!myReady && hasDuplicateUnits(myUnits)) {
       showToast("같은 유닛이 중복 선택되어 있습니다. 유닛을 확인해주세요.");
       return;
@@ -133,6 +137,10 @@ function goToBattle() {
 
 function unitAt(units, i) {
   return units ? units[i] : null;
+}
+
+function hasAllUnits(units) {
+  return [0, 1, 2].every((i) => unitAt(units, i));
 }
 
 function hasDuplicateUnits(units) {
