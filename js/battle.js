@@ -73,10 +73,14 @@ function backToLobby(message) {
 
 let leavingBattle = false;
 // 전투가 사라졌을 뿐 방에는 그대로 속해 있는 상태 -> 로비가 아니라 대기실로 돌아간다.
-function backToRoom() {
+// (상대가 나가면 남은 쪽이 battle을 지우므로 이 경로로 들어온다)
+function backToRoom(message) {
   if (leavingBattle) return;
   leavingBattle = true;
-  window.location.href = `room.html?room=${roomId}`;
+  if (message) showToast(message);
+  setTimeout(() => {
+    window.location.href = `room.html?room=${roomId}`;
+  }, message ? 1200 : 0);
 }
 
 if (!roomId) {
@@ -121,7 +125,8 @@ function watchRoom() {
     watchOpponentPresence(room, isHost);
 
     if (!room.battle) {
-      backToRoom();
+      // 전투 중에 battle이 사라지는 경우는 상대가 나갔을 때뿐이다.
+      backToRoom(mapBuilt ? "상대방이 나갔습니다. 대기실로 돌아갑니다." : "");
       return;
     }
 
@@ -411,6 +416,20 @@ async function maybeAdvancePhase(room) {
   }
 }
 
+// 상대가 유닛을 놓는 순간에도 같은 효과음이 들리도록, 새로 생긴 상대 배치를 감지한다.
+// (처음 화면에 들어왔을 때 이미 놓여 있던 것들은 소리내지 않는다)
+let knownOppKeys = null;
+function playOpponentPlacementSfx(oppPlacements) {
+  const keys = Object.keys(oppPlacements);
+  if (knownOppKeys === null) {
+    knownOppKeys = new Set(keys);
+    return;
+  }
+  const added = keys.some((k) => !knownOppKeys.has(k));
+  knownOppKeys = new Set(keys);
+  if (added) playSelect();
+}
+
 function renderBattle(room) {
   const battle = room.battle;
   myUnits = (isHost ? room.hostUnits : room.guestUnits) || [null, null, null];
@@ -421,6 +440,7 @@ function renderBattle(room) {
   const myPlacements = battle[battleField()] || {};
   const oppPlacements = battle[isHost ? "guestPlacements" : "hostPlacements"] || {};
 
+  playOpponentPlacementSfx(oppPlacements);
   renderSidebar(myPlacements);
   renderMapTiles(myPlacements, oppPlacements);
   renderTimer(battle);

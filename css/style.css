@@ -1002,8 +1002,10 @@ body.battle-page {
 }
 .tile.mine-area { background: #1f3a63; border: 1px solid #2c4d80; }
 .tile.enemy-area { background: #5c2020; border: 1px solid #7a2a2a; }
+/* 배치 불가 경계선: 파랑/빨강 진영과 확실히 구분되도록 무채색 회색으로 둔다 */
 .tile.boundary {
-  background: repeating-linear-gradient(45deg, #2a3364, #2a3364 6px, #333c68 6px, #333c68 12px);
+  background: repeating-linear-gradient(45deg, #4a4e57, #4a4e57 6px, #5a5f69 6px, #5a5f69 12px);
+  border: 1px solid #6b7079;
   cursor: not-allowed;
 }
 .tile.mine-area:not(.occupied) { cursor: pointer; }
