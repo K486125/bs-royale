@@ -324,6 +324,114 @@ ul.avatar-scroll-row {
   border-color: var(--accent);
 }
 
+/* ---------- 설정 화면 ---------- */
+.settings-box {
+  width: 420px;
+  gap: 18px;
+}
+
+.setting-block {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  background: #10152c;
+  border: 3px solid #3a4480;
+  border-radius: 10px;
+  padding: 16px 18px;
+}
+
+.setting-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.setting-label {
+  flex: 1;
+  font-weight: 900;
+  font-size: 16px;
+  color: #cfd8f5;
+}
+
+.setting-value {
+  width: 42px;
+  text-align: right;
+  font-weight: 900;
+  font-size: 15px;
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+}
+
+/* 껐다 켜는 스위치 */
+.switch {
+  position: relative;
+  width: 58px;
+  height: 32px;
+  flex-shrink: 0;
+  padding: 0;
+  border: 3px solid #3a4480;
+  border-radius: 999px;
+  background: #2a3364;
+  cursor: pointer;
+  transition: background .25s ease, border-color .25s ease;
+}
+.switch .knob {
+  position: absolute;
+  top: 50%;
+  left: 3px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: #9aa5d1;
+  transform: translateY(-50%);
+  transition: left .25s cubic-bezier(.2, .8, .3, 1), background .25s ease;
+}
+.switch.on {
+  background: #37d67a;
+  border-color: #14732f;
+}
+.switch.on .knob {
+  left: 29px;
+  background: #fff;
+}
+
+/* 영상 재생 바처럼 채워지는 음량 슬라이더 */
+.modal-box .setting-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  flex: 1;
+  min-width: 0;
+  height: 10px;
+  padding: 0;
+  border: none;
+  border-radius: 999px;
+  cursor: pointer;
+  /* --fill은 슬라이더를 움직일 때 JS가 갱신한다 */
+  background: linear-gradient(to right, var(--accent) var(--fill, 100%), #2a3364 var(--fill, 100%));
+  transition: opacity .2s ease;
+}
+.modal-box .setting-slider:focus { outline: none; }
+.modal-box .setting-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: #fff;
+  border: 3px solid #b58900;
+  box-shadow: 0 2px 4px rgba(0,0,0,.4);
+  transition: transform .12s ease;
+}
+.modal-box .setting-slider:hover::-webkit-slider-thumb { transform: scale(1.12); }
+.modal-box .setting-slider:active::-webkit-slider-thumb { transform: scale(1.22); }
+
+/* 꺼져 있을 때는 슬라이더를 흐리게 */
+.setting-block.off .setting-slider,
+.setting-block.off .setting-value {
+  opacity: .35;
+  pointer-events: none;
+}
+
 .name-setup-box {
   width: 380px;
 }
@@ -969,6 +1077,15 @@ body.battle-page {
   .picker-count { font-size: 18px; padding: 7px 14px; border-width: 3px; }
   .modal-box input { padding: 15px 18px; font-size: 21px; }
   .avatar-picker-box { width: 780px; } /* 카드가 200px로 커지므로 함께 확대 */
+  .settings-box { width: 520px; gap: 22px; }
+  .setting-block { padding: 20px 22px; gap: 16px; }
+  .setting-label { font-size: 20px; }
+  .setting-value { font-size: 19px; width: 52px; }
+  .switch { width: 68px; height: 38px; }
+  .switch .knob { width: 24px; height: 24px; }
+  .switch.on .knob { left: 35px; }
+  .modal-box .setting-slider { height: 12px; }
+  .modal-box .setting-slider::-webkit-slider-thumb { width: 26px; height: 26px; }
   .name-setup-box { width: 500px; }
   .name-setup-preview { gap: 18px; }
   .avatar-frame-lg { width: 92px; height: 92px; }

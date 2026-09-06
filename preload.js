@@ -3,5 +3,6 @@ const { contextBridge, ipcRenderer } = require("electron");
 
 contextBridge.exposeInMainWorld("bsApi", {
   startMusic: () => ipcRenderer.send("start-music"),
+  setMusicSettings: (settings) => ipcRenderer.send("music-settings", settings),
   onUpdateStatus: (callback) => ipcRenderer.on("update-status", (_event, status) => callback(status))
 });

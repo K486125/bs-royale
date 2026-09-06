@@ -1,3 +1,5 @@
+import { loadSettings } from "./settings.js";
+
 // 효과음. 화면(로비/대기실/배치)마다 각자 불러 쓴다.
 //
 // 음원이 아주 작게 녹음돼 있어도 들리도록, 파일을 디코딩한 뒤 실제 최대 진폭을 재서
@@ -45,6 +47,10 @@ const ready = load().catch((err) => {
 });
 
 export async function playSelect() {
+  // 설정은 언제든 바뀔 수 있으므로 재생할 때마다 읽는다 (클릭 때만 실행되니 부담 없다).
+  const { sfxOn, sfxVolume } = loadSettings();
+  if (!sfxOn || sfxVolume === 0) return;
+
   await ready;
   if (!buffer) return;
   if (ctx.state === "suspended") await ctx.resume();
@@ -53,7 +59,7 @@ export async function playSelect() {
   const source = ctx.createBufferSource();
   source.buffer = buffer;
   const amp = ctx.createGain();
-  amp.gain.value = gain;
+  amp.gain.value = gain * (sfxVolume / 100);
   source.connect(amp).connect(ctx.destination);
   source.start(0, startOffset);
 }

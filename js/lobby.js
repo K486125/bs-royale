@@ -1,6 +1,7 @@
 import { firebaseConfig } from "./firebase-config.js";
 import { unitFrameClass, unitNumber } from "./unit-colors.js";
 import { playSelect } from "./sfx.js";
+import { loadSettings, saveSettings } from "./settings.js";
 import { initializeApp } from "https://www.gstatic.com/firebasejs/12.18.0/firebase-app.js";
 import {
   getAuth, signInAnonymously, onAuthStateChanged,
@@ -50,6 +51,15 @@ const toastEl = document.getElementById("toast");
 const avatarModal = document.getElementById("avatar-modal");
 const avatarPickerRow = document.getElementById("avatar-picker-row");
 const avatarCountEl = document.getElementById("avatar-count");
+const settingsBtn = document.getElementById("settings-btn");
+const settingsModal = document.getElementById("settings-modal");
+const settingsCloseBtn = document.getElementById("settings-close-btn");
+const musicToggle = document.getElementById("music-toggle");
+const musicVolume = document.getElementById("music-volume");
+const musicVolumeValue = document.getElementById("music-volume-value");
+const sfxToggle = document.getElementById("sfx-toggle");
+const sfxVolume = document.getElementById("sfx-volume");
+const sfxVolumeValue = document.getElementById("sfx-volume-value");
 const setupAvatarImg = document.getElementById("setup-avatar-img");
 const setupAvatarFrame = document.getElementById("setup-avatar-frame");
 const appLoadingEl = document.getElementById("app-loading");
@@ -151,6 +161,76 @@ toggleSidebarBtn.addEventListener("click", () => {
   sidebarPanel.classList.toggle("collapsed");
 });
 
+// ---------- 설정 (소리) ----------
+let audioSettings = loadSettings();
+
+// 배경음악은 별도의 숨김 창에서 재생되므로 메인 프로세스를 거쳐 전달한다.
+function pushMusicSettings() {
+  if (!window.bsApi || !window.bsApi.setMusicSettings) return;
+  window.bsApi.setMusicSettings({
+    enabled: audioSettings.musicOn,
+    volume: audioSettings.musicVolume / 100
+  });
+}
+
+// 슬라이더의 채워진 부분이 손잡이를 따라오게 한다 (영상 재생 바처럼)
+function paintSlider(slider, value) {
+  slider.style.setProperty("--fill", `${value}%`);
+}
+
+function renderSettings() {
+  musicToggle.classList.toggle("on", audioSettings.musicOn);
+  musicToggle.closest(".setting-block").classList.toggle("off", !audioSettings.musicOn);
+  musicVolume.value = audioSettings.musicVolume;
+  musicVolumeValue.textContent = audioSettings.musicVolume;
+  paintSlider(musicVolume, audioSettings.musicVolume);
+
+  sfxToggle.classList.toggle("on", audioSettings.sfxOn);
+  sfxToggle.closest(".setting-block").classList.toggle("off", !audioSettings.sfxOn);
+  sfxVolume.value = audioSettings.sfxVolume;
+  sfxVolumeValue.textContent = audioSettings.sfxVolume;
+  paintSlider(sfxVolume, audioSettings.sfxVolume);
+}
+
+function updateSettings(changes, { pushMusic = true } = {}) {
+  audioSettings = { ...audioSettings, ...changes };
+  saveSettings(audioSettings);
+  renderSettings();
+  if (pushMusic) pushMusicSettings();
+}
+
+settingsBtn.addEventListener("click", () => {
+  playSelect();
+  renderSettings();
+  settingsModal.classList.remove("hidden");
+});
+settingsCloseBtn.addEventListener("click", () => {
+  playSelect();
+  settingsModal.classList.add("hidden");
+});
+settingsModal.addEventListener("click", (e) => {
+  if (e.target === settingsModal) settingsModal.classList.add("hidden");
+});
+
+musicToggle.addEventListener("click", () => {
+  playSelect();
+  updateSettings({ musicOn: !audioSettings.musicOn });
+});
+sfxToggle.addEventListener("click", () => {
+  const sfxOn = !audioSettings.sfxOn;
+  updateSettings({ sfxOn }, { pushMusic: false });
+  if (sfxOn) playSelect(); // 켠 순간 어떤 소리인지 바로 들려준다
+});
+
+// 드래그하는 동안에는 즉시 반영하고, 손을 뗐을 때만 효과음을 미리 들려준다.
+musicVolume.addEventListener("input", () => {
+  updateSettings({ musicVolume: Number(musicVolume.value) });
+});
+sfxVolume.addEventListener("input", () => {
+  updateSettings({ sfxVolume: Number(sfxVolume.value) }, { pushMusic: false });
+});
+sfxVolume.addEventListener("change", () => playSelect());
+
 // ---------- 닉네임 & 프로필 설정 ----------
 function initNickname() {
   myAvatarImg.src = avatarUrl(myAvatar);
@@ -183,6 +263,8 @@ nameInput.addEventListener("keydown", (e) => {
 // ---------- 인증 & presence ----------
 function startApp() {
   // 닉네임 입력을 마치고 로비에 도달하는 시점(재방문 시에도 동일 시점)에 배경음악을 시작한다.
+  // 저장된 설정을 먼저 넘겨서, 음악을 꺼둔 상태라면 소리가 새어나오지 않게 한다.
+  pushMusicSettings();
   if (window.bsApi) window.bsApi.startMusic();
 
   setPersistence(auth, browserSessionPersistence)

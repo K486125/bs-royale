@@ -57,6 +57,37 @@
 <div class="bottom-left-actions">
   <button id="create-room-btn" class="btn lobby-action-btn">방 만들기</button>
   <button id="toggle-sidebar-btn" class="btn lobby-action-btn icon-btn" title="방 목록 열기/닫기">☰</button>
+  <button id="settings-btn" class="btn lobby-action-btn icon-btn" title="설정">⚙</button>
+</div>
+
+<div id="settings-modal" class="modal hidden">
+  <div class="modal-box settings-box">
+    <h2>설정</h2>
+
+    <div class="setting-block">
+      <div class="setting-row">
+        <span class="setting-label">배경음악</span>
+        <button id="music-toggle" class="switch" type="button" aria-label="배경음악 켜기/끄기"><span class="knob"></span></button>
+      </div>
+      <div class="setting-row">
+        <input id="music-volume" class="setting-slider" type="range" min="0" max="100" step="1">
+        <span id="music-volume-value" class="setting-value">100</span>
+      </div>
+    </div>
+
+    <div class="setting-block">
+      <div class="setting-row">
+        <span class="setting-label">효과음</span>
+        <button id="sfx-toggle" class="switch" type="button" aria-label="효과음 켜기/끄기"><span class="knob"></span></button>
+      </div>
+      <div class="setting-row">
+        <input id="sfx-volume" class="setting-slider" type="range" min="0" max="100" step="1">
+        <span id="sfx-volume-value" class="setting-value">100</span>
+      </div>
+    </div>
+
+    <button id="settings-close-btn" class="btn">닫기</button>
+  </div>
 </div>
 
 <div id="toast" class="toast"></div>

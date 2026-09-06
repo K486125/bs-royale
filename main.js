@@ -106,6 +106,11 @@ ipcMain.on("start-music", () => {
   if (audioWin) audioWin.webContents.send("play-music");
 });
 
+// 설정 화면에서 바꾼 음악 볼륨/켜짐 여부를 숨김 오디오 창에 전달한다.
+ipcMain.on("music-settings", (event, settings) => {
+  if (audioWin) audioWin.webContents.send("music-settings", settings);
+});
+
 function createWindow(port, pos) {
   const win = new BrowserWindow({
     width: FIXED_WIDTH,
