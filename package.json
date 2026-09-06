@@ -1,6 +1,6 @@
 {
   "name": "bs-royale",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "description": "BS Royale - 실시간 1대1 대전 게임",
   "main": "main.js",
   "scripts": {
