@@ -2,11 +2,13 @@
 // (닉네임/프로필은 창마다 달라야 해서 sessionStorage를 쓰지만, 설정은 앱 전체에 하나뿐이다)
 const KEY = "bs_audio_settings";
 
+// 기본값은 실제 음원 크기를 재서 정했다. 이 조합이면 배경음악은 은은하게 깔리고,
+// 효과음이 그보다 2dB 남짓 크게 들린다 (100은 최대치로 남겨둔다).
 export const DEFAULT_SETTINGS = {
   musicOn: true,
-  musicVolume: 100,
+  musicVolume: 35,
   sfxOn: true,
-  sfxVolume: 100
+  sfxVolume: 55
 };
 
 function clampVolume(value, fallback) {
