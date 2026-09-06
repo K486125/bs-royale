@@ -73,10 +73,11 @@
         },
 
         "battle": {
-          "phase": { ".validate": "newData.isString() && newData.val().matches(/^(loading|placing|countdown)$/)" },
+          "phase": { ".validate": "newData.isString() && newData.val().matches(/^(loading|placing|countdown|finished)$/)" },
           "createdAt": { ".validate": "newData.isNumber()" },
           "placingStartedAt": { ".validate": "newData.isNumber()" },
           "countdownStartedAt": { ".validate": "newData.isNumber()" },
+          "finishedAt": { ".validate": "newData.isNumber()" },
 
           "hostDone": { ".validate": "newData.isBoolean() && root.child('rooms').child($roomId).child('hostUid').val() === auth.uid" },
           "guestDone": { ".validate": "newData.isBoolean() && root.child('rooms').child($roomId).child('guestUid').val() === auth.uid" },

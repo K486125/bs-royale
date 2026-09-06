@@ -18,6 +18,7 @@ const COLS = 7;
 const BOUNDARY_ROW = 3; // 세로 7칸 중 가운데 한 줄 = 배치 불가 경계선
 const PLACING_MS = 60000;
 const LOADING_MIN_MS = 1400; // 로딩 화면 최소 노출 시간 (버벅거림 방지용 체감 대기)
+const MATCH_END_MS = 1800; // "매치 종료" 문구를 보여주는 시간
 
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
@@ -43,6 +44,7 @@ const loadingStartedAt = Date.now();
 
 let timerInterval = null;
 let countdownInterval = null;
+let matchFinished = false; // 정상 종료로 대기실에 돌아가는 중인지 (상대 이탈과 구분)
 
 const loadingOverlay = document.getElementById("loading-overlay");
 const battleMain = document.getElementById("battle-main");
@@ -51,6 +53,7 @@ const mapEl = document.getElementById("battle-map");
 const timerEl = document.getElementById("placement-timer");
 const countdownOverlay = document.getElementById("countdown-overlay");
 const countdownNumberEl = document.getElementById("countdown-number");
+const matchEndOverlay = document.getElementById("match-end-overlay");
 const toastEl = document.getElementById("toast");
 
 function showToast(msg) {
@@ -119,8 +122,12 @@ function watchRoom() {
     watchOpponentPresence(room, isHost);
 
     if (!room.battle) {
-      // 전투 중에 battle이 사라지는 경우는 상대가 나갔을 때뿐이다.
-      backToRoom(mapBuilt ? "상대방이 나갔습니다. 대기실로 돌아갑니다." : "");
+      // 정상적으로 매치가 끝나서 지워진 경우와, 상대가 나가서 지워진 경우를 구분한다.
+      const opponentGone = isHost ? !room.guestUid : !room.hostUid;
+      const leftMessage = (!matchFinished && mapBuilt && opponentGone)
+        ? "상대방이 나갔습니다. 대기실로 돌아갑니다."
+        : "";
+      backToRoom(leftMessage);
       return;
     }
 
@@ -374,10 +381,53 @@ function renderCountdown(battle) {
     const remain = Math.max(0, 3000 - (serverNow() - battle.countdownStartedAt));
     const n = Math.ceil(remain / 1000);
     countdownNumberEl.textContent = String(n);
-    if (remain <= 0) clearInterval(countdownInterval);
+    if (remain <= 0) {
+      clearInterval(countdownInterval);
+      // 아직 실제 전투 로직이 없으므로 카운트다운이 끝나면 바로 매치 종료로 넘어간다.
+      if (isHost) finishMatch();
+    }
   };
   tick();
   countdownInterval = setInterval(tick, 100);
+}
+
+// ---------- 매치 종료 -> 대기실 복귀 ----------
+let finishRequested = false;
+async function finishMatch() {
+  if (finishRequested) return;
+  finishRequested = true;
+  await update(ref(db, `rooms/${roomId}/battle`), {
+    phase: "finished",
+    finishedAt: serverTimestamp()
+  });
+}
+
+let finishSequenceStarted = false;
+function handleFinish(battle) {
+  if (battle.phase !== "finished" || finishSequenceStarted) return;
+  finishSequenceStarted = true;
+  matchFinished = true;
+
+  clearInterval(timerInterval);
+  clearInterval(countdownInterval);
+  countdownOverlay.classList.add("hidden");
+  matchEndOverlay.classList.remove("hidden");
+
+  setTimeout(() => {
+    matchEndOverlay.classList.add("hidden");
+    loadingOverlay.querySelector(".loading-text").textContent = "대기실로 돌아가는 중...";
+    loadingOverlay.classList.remove("hidden");
+    battleMain.classList.add("hidden");
+    // 호스트가 대표로 전투 데이터를 지운다. 준비 상태도 풀어야 대기실에서
+    // 곧바로 다음 전투가 시작되지 않는다. 양쪽 모두 battle이 사라지면 대기실로 돌아간다.
+    if (isHost) {
+      update(ref(db, `rooms/${roomId}`), {
+        battle: null,
+        hostReady: false,
+        guestReady: false
+      }).catch((err) => console.error("전투 정리 실패:", err));
+    }
+  }, MATCH_END_MS);
 }
 
 // ---------- 로딩 -> 배치 화면 전환 (최소 노출 시간 보장) ----------
@@ -454,6 +504,11 @@ function renderBattle(room) {
   const battle = room.battle;
   myUnits = (isHost ? room.hostUnits : room.guestUnits) || [null, null, null];
   myDone = !!(isHost ? battle.hostDone : battle.guestDone);
+
+  if (battle.phase === "finished") {
+    handleFinish(battle);
+    return;
+  }
 
   renderPhaseVisibility(battle);
 

@@ -1362,3 +1362,24 @@ body.battle-page {
 @media (max-width: 700px) {
   .notice-bar { font-size: 20px; }
 }
+
+/* 매치 종료 문구 (카운트다운과 같은 어두운 덮개 위에 표시) */
+.match-end-text {
+  font-size: 84px;
+  font-weight: 900;
+  color: #fff;
+  letter-spacing: 2px;
+  text-shadow:
+    -3px -3px 0 #000, 3px -3px 0 #000,
+    -3px  3px 0 #000, 3px  3px 0 #000,
+    0 3px 0 #000, 0 6px 0 #000,
+    0 14px 16px rgba(0,0,0,.45);
+  animation: match-end-pop .35s cubic-bezier(.16,.9,.3,1);
+}
+@keyframes match-end-pop {
+  from { opacity: 0; transform: translateY(24px) scale(.9); }
+  to { opacity: 1; transform: none; }
+}
+@media (max-width: 700px) {
+  .match-end-text { font-size: 52px; }
+}
