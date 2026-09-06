@@ -24,9 +24,67 @@
   body {
     font-family: "Segoe UI", "Malgun Gothic", sans-serif;
     color: var(--text);
-    background: #0a0d1e;
+    /* 영상이 도착하기 전에도 화면이 비어 보이지 않도록, 영상과 비슷한 파란 배경을 깔아둔다 */
+    background: radial-gradient(circle at 50% 45%, #1a86b8, #0b3a72 70%, #06254c);
     overflow: hidden;
   }
+
+  /* 영상을 받는 동안 보여주는 로딩 화면 (앱의 로딩 화면과 같은 모양) */
+  .loading {
+    position: fixed;
+    inset: 0;
+    z-index: 10;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 20px;
+    background: rgba(10, 13, 30, .9);
+    transition: opacity .5s ease;
+  }
+  .loading.hide {
+    opacity: 0;
+    pointer-events: none;
+  }
+  .loading-spinner {
+    width: 56px;
+    height: 56px;
+    border: 6px solid #3a4480;
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: bs-spin .8s linear infinite;
+  }
+  @keyframes bs-spin { to { transform: rotate(360deg); } }
+  .loading-text {
+    font-size: 15px;
+    font-weight: 800;
+    color: #c6cdf0;
+    letter-spacing: .5px;
+  }
+  /* 영상 받은 정도를 보여주는 가는 막대 */
+  .loading-bar {
+    width: min(260px, 60vw);
+    height: 6px;
+    border-radius: 4px;
+    background: #232948;
+    overflow: hidden;
+  }
+  .loading-bar span {
+    display: block;
+    width: 0%;
+    height: 100%;
+    background: var(--accent);
+    transition: width .25s ease;
+  }
+
+  /* 로딩이 끝나면 본문이 부드럽게 나타난다 */
+  main, .sound-btn, .repo-link {
+    opacity: 0;
+    transition: opacity .5s ease;
+  }
+  body.ready main,
+  body.ready .sound-btn,
+  body.ready .repo-link { opacity: 1; }
 
   /* 배경 영상: 화면을 잘라내며 꽉 채운다 */
   .bg-video {
@@ -189,6 +247,12 @@
 </video>
 <div class="bg-shade"></div>
 
+<div class="loading" id="loading">
+  <div class="loading-spinner"></div>
+  <div class="loading-bar"><span id="loading-fill"></span></div>
+  <div class="loading-text">불러오는 중...</div>
+</div>
+
 <main>
   <img class="logo" src="icon.png" alt="">
   <h1>BS ROYALE</h1>
@@ -206,6 +270,42 @@
 
 <script>
   const REPO = "K486125/bs-royale";
+
+  // ---------- 로딩 화면 ----------
+  // 배경 영상이 7MB라 처음 접속에서는 몇 초 걸린다. 그동안 빈 화면을 보여주는 대신
+  // 로딩 화면을 덮어두고, 영상이 재생 가능한 시점에 걷어낸다.
+  const loading = document.getElementById("loading");
+  const loadingFill = document.getElementById("loading-fill");
+  const bgVideo = document.getElementById("bg");
+  let finished = false;
+
+  function finishLoading() {
+    if (finished) return;
+    finished = true;
+    loadingFill.style.width = "100%";
+    document.body.classList.add("ready");
+    loading.classList.add("hide");
+    setTimeout(() => loading.remove(), 600);
+  }
+
+  // 얼마나 받았는지 막대에 표시한다 (영상 길이 대비 버퍼된 구간)
+  function updateProgress() {
+    if (finished || !bgVideo.duration) return;
+    if (bgVideo.buffered.length > 0) {
+      const ratio = bgVideo.buffered.end(bgVideo.buffered.length - 1) / bgVideo.duration;
+      loadingFill.style.width = `${Math.min(95, Math.round(ratio * 100))}%`;
+    }
+  }
+
+  bgVideo.addEventListener("progress", updateProgress);
+  bgVideo.addEventListener("loadeddata", updateProgress);
+  // 끊김 없이 재생할 수 있게 되면 바로 시작한다. 그 전이라도 재생이 시작되면 걷어낸다.
+  bgVideo.addEventListener("canplaythrough", finishLoading);
+  bgVideo.addEventListener("playing", finishLoading);
+  bgVideo.addEventListener("error", finishLoading); // 영상이 안 되더라도 페이지는 보여야 한다
+
+  // 인터넷이 아주 느린 경우까지 기다리게 하지 않는다. 배경은 파란 화면으로도 충분하다.
+  setTimeout(finishLoading, 6000);
 
   // ---------- 배경 영상 소리 ----------
   // 브라우저는 소리 있는 자동재생을 막기 때문에, 음소거로 시작하고
