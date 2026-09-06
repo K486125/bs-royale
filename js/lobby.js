@@ -199,13 +199,12 @@ function updateSettings(changes, { pushMusic = true } = {}) {
   if (pushMusic) pushMusicSettings();
 }
 
+// 선택 효과음은 프로필/유닛을 고를 때와 유닛을 배치할 때만 난다. 설정 화면에서는 내지 않는다.
 settingsBtn.addEventListener("click", () => {
-  playSelect();
   renderSettings();
   settingsModal.classList.remove("hidden");
 });
 settingsCloseBtn.addEventListener("click", () => {
-  playSelect();
   settingsModal.classList.add("hidden");
 });
 settingsModal.addEventListener("click", (e) => {
@@ -213,23 +212,19 @@ settingsModal.addEventListener("click", (e) => {
 });
 
 musicToggle.addEventListener("click", () => {
-  playSelect();
   updateSettings({ musicOn: !audioSettings.musicOn });
 });
 sfxToggle.addEventListener("click", () => {
-  const sfxOn = !audioSettings.sfxOn;
-  updateSettings({ sfxOn }, { pushMusic: false });
-  if (sfxOn) playSelect(); // 켠 순간 어떤 소리인지 바로 들려준다
+  updateSettings({ sfxOn: !audioSettings.sfxOn }, { pushMusic: false });
 });
 
-// 드래그하는 동안에는 즉시 반영하고, 손을 뗐을 때만 효과음을 미리 들려준다.
+// 드래그하는 동안 바로 반영된다 (음악은 즉시 볼륨이 바뀌므로 그 자체로 확인이 된다).
 musicVolume.addEventListener("input", () => {
   updateSettings({ musicVolume: Number(musicVolume.value) });
 });
 sfxVolume.addEventListener("input", () => {
   updateSettings({ sfxVolume: Number(sfxVolume.value) }, { pushMusic: false });
 });
-sfxVolume.addEventListener("change", () => playSelect());
 
 // ---------- 닉네임 & 프로필 설정 ----------
 function initNickname() {

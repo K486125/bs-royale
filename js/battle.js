@@ -203,9 +203,10 @@ function renderSidebar(myPlacements) {
       </div>
     `;
 
+    // 사이드바에서 유닛을 고르는 것만으로는 소리를 내지 않는다.
+    // 효과음은 실제로 타일에 배치했을 때만 난다 (onTileClick 참고).
     if (!isPlaced && !myDone) {
       card.addEventListener("click", () => {
-        playSelect();
         selectedSlot = (selectedSlot === i) ? null : i;
         renderSidebar(myPlacements);
       });
