@@ -161,6 +161,13 @@ toggleSidebarBtn.addEventListener("click", () => {
   sidebarPanel.classList.toggle("collapsed");
 });
 
+// 사이드바 바깥(왼쪽 화면 아무 곳)을 누르면 닫는다. 여는 버튼 자체는 토글이므로 제외한다.
+document.addEventListener("mousedown", (e) => {
+  if (sidebarPanel.classList.contains("collapsed")) return;
+  if (sidebarPanel.contains(e.target) || toggleSidebarBtn.contains(e.target)) return;
+  sidebarPanel.classList.add("collapsed");
+});
+
 // ---------- 설정 (소리) ----------
 let audioSettings = loadSettings();
 

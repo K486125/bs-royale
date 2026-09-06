@@ -50,6 +50,13 @@ export function initChat(ctx) {
     send();
   });
 
+  // 채팅창 바깥(왼쪽 화면 아무 곳)을 누르면 닫는다. 여는 버튼 자체는 토글이므로 제외한다.
+  document.addEventListener("mousedown", (e) => {
+    if (!open) return;
+    if (panelEl.contains(e.target) || toggleBtn.contains(e.target)) return;
+    setOpen(false);
+  });
+
   inputEl.addEventListener("input", onTyping);
   inputEl.addEventListener("blur", () => setTyping(false));
   // 대기실을 벗어나거나 창이 닫히면 "입력 중" 표시가 남지 않도록 지운다.
