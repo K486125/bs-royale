@@ -134,28 +134,29 @@ function watchRoom() {
     updatePresence(isHost);
     watchOpponentPresence(room, isHost);
 
-    // 둘 다 배치 화면으로 넘어가야 하는 시점 -> 대기실은 이제 볼 일이 없으니 바로 이동시킨다.
-    if (room.battle) {
-      const oppUid = isHost ? room.guestUid : room.hostUid;
-      const oppOnline = isHost ? room.guestOnline : room.hostOnline;
-      const oppNavigating = isHost ? room.guestNavigating : room.hostNavigating;
-      // 화면 이동 중(navigating)이라 잠깐 끊긴 것과, 창을 꺼서 사라진 것을 구분한다.
-      const opponentGone = !oppUid || (oppOnline === false && oppNavigating === false);
+    const oppUid = isHost ? room.guestUid : room.hostUid;
+    const oppOnline = isHost ? room.guestOnline : room.hostOnline;
+    const oppNavigating = isHost ? room.guestNavigating : room.hostNavigating;
+    // 화면 이동 중(navigating)이라 잠깐 끊긴 것과, 창을 꺼서 사라진 것을 구분한다.
+    const opponentGone = !oppUid || (oppOnline === false && oppNavigating === false);
 
+    if (room.battle) {
+      // 둘 다 배치 화면으로 넘어가야 하는 시점 -> 대기실은 이제 볼 일이 없으니 바로 이동시킨다.
       if (!opponentGone) {
         goToBattle();
         return;
       }
       // 상대는 없는데 전투 데이터만 남은 경우(정리 실패 등). 혼자 전투 화면에 들어가면
-      // 빠져나올 방법이 없으므로 들어가지 않고 지운 뒤 대기실을 그대로 보여준다.
-      if (isHost) {
-        update(roomRef, { battle: null, hostReady: false, guestReady: false })
-          .catch((err) => console.error("남아있는 전투 데이터 정리 실패:", err));
-      }
-    }
-
-    // 둘 다 준비 완료되면 호스트가 대표로 배치 단계를 시작시킨다 (양쪽이 동시에 써서 충돌할 필요 없음).
-    if (isHost && room.hostReady && room.guestReady) {
+      // 빠져나올 방법이 없으므로 들어가지 않고 지운다.
+      // 이 화면(스냅샷)의 준비 상태는 아직 true이므로, 지운 직후에 아래 "둘 다 준비 완료"
+      // 조건이 다시 전투를 만들어내지 않도록 여기서 갈라놓는다 (대기실↔전투 무한 왕복의 원인).
+      // 남은 사람이 방장이 아닐 수도 있으므로(방장이 창을 끈 경우) 역할과 무관하게 지운다.
+      // 둘이 동시에 지워도 같은 값을 쓰는 것이라 문제되지 않는다.
+      update(roomRef, { battle: null, hostReady: false, guestReady: false })
+        .catch((err) => console.error("남아있는 전투 데이터 정리 실패:", err));
+    } else if (isHost && room.hostReady && room.guestReady && !opponentGone) {
+      // 둘 다 준비 완료되면 호스트가 대표로 배치 단계를 시작시킨다 (양쪽이 동시에 써서 충돌할 필요 없음).
+      // 상대가 이미 사라진 상태라면 새 전투를 시작하지 않는다.
       update(roomRef, { battle: { phase: "loading", createdAt: serverTimestamp() } });
     }
 
