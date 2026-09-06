@@ -157,11 +157,12 @@ function watchRoom() {
     const myReady = currentIsHost ? currentRoom.hostReady : currentRoom.guestReady;
     const myUnits = currentIsHost ? currentRoom.hostUnits : currentRoom.guestUnits;
     if (!myReady && !hasAllUnits(myUnits)) {
-      pushNotice(`실패: 유닛을 모두 장착 하세요 (${unitCount(myUnits)}/3)`);
+      // 준비 실패 안내는 여러 번 눌러도 가장 최근 것 하나만 보여준다.
+      pushNotice(`실패: 유닛을 모두 장착 하세요 (${unitCount(myUnits)}/3)`, { group: "ready", duration: 2000 });
       return;
     }
     if (!myReady && hasDuplicateUnits(myUnits)) {
-      pushNotice("실패: 중복 유닛을 확인하세요.");
+      pushNotice("실패: 중복 유닛을 확인하세요.", { group: "ready", duration: 2000 });
       return;
     }
     // 트랜잭션은 재시도 시 낙관적 업데이트가 여러 번 발생해 버튼이 깜빡이므로,
