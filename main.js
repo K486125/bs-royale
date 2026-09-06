@@ -72,6 +72,11 @@ function startServer() {
 const FIXED_WIDTH = 940;
 const FIXED_HEIGHT = 600;
 
+// 제목 표시줄 색상 (css의 .titlebar와 같은 값을 써야 이어져 보인다)
+const TITLEBAR_COLOR = "#4a4e57";
+const TITLEBAR_SYMBOL_COLOR = "#e8eaf0";
+const TITLEBAR_HEIGHT = 32;
+
 let audioWin = null;
 let visibleWindowCount = 0;
 const mainWindows = [];
@@ -112,6 +117,14 @@ function createWindow(port, pos) {
     resizable: true,
     maximizable: true,
     autoHideMenuBar: true,
+    // Windows는 네이티브 제목 표시줄 색을 직접 바꿀 수 없다. 네이티브 바를 숨기고
+    // 최소화/최대화/닫기 버튼만 오버레이로 남긴 뒤, 그 자리는 페이지가 직접 그린다(.titlebar).
+    titleBarStyle: "hidden",
+    titleBarOverlay: {
+      color: TITLEBAR_COLOR,
+      symbolColor: TITLEBAR_SYMBOL_COLOR,
+      height: TITLEBAR_HEIGHT
+    },
     webPreferences: {
       zoomFactor: 1,
       preload: path.join(__dirname, "preload.js")

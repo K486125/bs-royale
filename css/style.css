@@ -8,6 +8,29 @@
   --text-dim: #9aa1c2;
   --danger: #ff5c5c;
   --radius: 12px;
+  --titlebar-h: 32px;
+}
+
+/* 네이티브 제목 표시줄을 숨긴 자리(main.js의 titleBarOverlay)를 페이지가 직접 그린다.
+   창 이동/더블클릭 최대화가 계속 되도록 드래그 영역으로 지정한다. */
+.titlebar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: var(--titlebar-h);
+  display: flex;
+  align-items: center;
+  padding-left: 12px;
+  background: #4a4e57;
+  -webkit-app-region: drag;
+  z-index: 500;
+}
+.titlebar-title {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: .5px;
+  color: #e8eaf0;
 }
 
 * {
@@ -112,6 +135,13 @@ body {
   transform: scale(1.25);
 }
 
+/* 제목 표시줄을 페이지가 그리므로, 그 높이만큼 내용을 아래로 밀어준다. */
+body.lobby-page,
+body.room-page,
+body.battle-page {
+  padding-top: var(--titlebar-h);
+}
+
 body.lobby-page {
   height: 100vh;
   overflow: hidden;
@@ -127,9 +157,9 @@ body.lobby-page {
   padding: 26px;
   box-shadow: -6px 0 18px rgba(0,0,0,.35);
   position: fixed;
-  top: 0;
+  top: var(--titlebar-h);
   right: 0;
-  height: 100vh;
+  height: calc(100vh - var(--titlebar-h));
   width: 440px;
   display: flex;
   flex-direction: column;
@@ -747,8 +777,8 @@ body.battle-page {
 .unit-sidebar {
   position: fixed;
   left: 0;
-  top: 0;
-  height: 100vh;
+  top: var(--titlebar-h);
+  height: calc(100vh - var(--titlebar-h));
   width: calc(var(--unit-card) + 36px);
   display: flex;
   flex-direction: column;
