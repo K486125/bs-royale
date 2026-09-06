@@ -274,8 +274,10 @@ body.lobby-page {
   box-shadow: 0 6px 0 #0a0d1e, 0 10px 24px rgba(0,0,0,.5);
 }
 
+/* 카드 3개(140px)와 그 사이 간격이 온전히 들어가고, 다음 카드가 살짝 걸쳐
+   더 스크롤할 수 있다는 게 보이는 너비 */
 .avatar-picker-box {
-  width: 480px;
+  width: 552px;
 }
 
 ul.avatar-scroll-row {
@@ -941,7 +943,7 @@ body.battle-page {
   .modal-box { padding: 36px; gap: 18px; }
   .modal-box h2 { font-size: 21px; }
   .modal-box input { padding: 15px 18px; font-size: 21px; }
-  .avatar-picker-box { width: 660px; }
+  .avatar-picker-box { width: 780px; } /* 카드가 200px로 커지므로 함께 확대 */
   .name-setup-box { width: 500px; }
   .name-setup-preview { gap: 18px; }
   .avatar-frame-lg { width: 92px; height: 92px; }
