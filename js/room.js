@@ -359,23 +359,31 @@ function escapeHtml(str) {
 async function acceptRequest(guestUid, req) {
   const roomRef = ref(db, `rooms/${roomId}`);
   const joinKey = newChatKey(db, roomId);
-  const result = await runTransaction(roomRef, (room) => {
-    if (!room) return room;
-    if (room.guestUid) return; // 이미 채워짐 -> 중단
-    room.guestUid = guestUid;
-    room.guestName = req.guestName;
-    room.guestAvatar = req.guestAvatar;
-    room.guestUnits = req.guestUnits || room.guestUnits;
-    room.guestReady = false;
-    room.playerCount = 2;
-    room.status = "full";
-    room.requests = null;
-    // 이전 대화를 지우지 않는다. 대신 새 게스트는 자기 참가 알림부터 보게 한다.
-    room.chat = addJoinNotice(room.chat, { key: joinKey, uid: guestUid, name: req.guestName });
-    room.guestChatSince = joinKey;
-    room.guestTyping = null;
-    return room;
-  });
+  let result;
+  try {
+    result = await runTransaction(roomRef, (room) => {
+      if (!room) return room;
+      if (room.guestUid) return; // 이미 채워짐 -> 중단
+      room.guestUid = guestUid;
+      room.guestName = req.guestName;
+      room.guestAvatar = req.guestAvatar;
+      room.guestUnits = req.guestUnits || room.guestUnits;
+      room.guestReady = false;
+      room.playerCount = 2;
+      room.status = "full";
+      room.requests = null;
+      // 이전 대화를 지우지 않는다. 대신 새 게스트는 자기 참가 알림부터 보게 한다.
+      room.chat = addJoinNotice(room.chat, { key: joinKey, uid: guestUid, name: req.guestName });
+      room.guestChatSince = joinKey;
+      room.guestTyping = null;
+      return room;
+    });
+  } catch (err) {
+    // 쓰기가 거부되면(주로 보안 규칙) 조용히 실패하지 않고 이유를 보여준다.
+    console.error("참가 수락 실패:", err);
+    showToast("참가를 수락하지 못했습니다: " + (err && err.message ? err.message : err));
+    return;
+  }
   if (!result.committed) {
     showToast("이미 다른 요청을 수락했습니다.");
   }
