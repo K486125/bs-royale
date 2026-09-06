@@ -78,13 +78,12 @@
   }
 
   /* 로딩이 끝나면 본문이 부드럽게 나타난다 */
-  main, .sound-btn, .repo-link {
+  main, .sound-btn {
     opacity: 0;
     transition: opacity .5s ease;
   }
   body.ready main,
-  body.ready .sound-btn,
-  body.ready .repo-link { opacity: 1; }
+  body.ready .sound-btn { opacity: 1; }
 
   /* 배경 영상: 화면을 잘라내며 꽉 채운다 */
   .bg-video {
@@ -219,24 +218,12 @@
   }
   .sound-btn:active { transform: translateY(4px); box-shadow: none; }
 
-  .repo-link {
-    position: fixed;
-    left: 20px;
-    bottom: 22px;
-    font-size: 13px;
-    font-weight: 700;
-    color: #b9c1e6;
-    text-decoration: none;
-    text-shadow: 0 2px 4px rgba(0,0,0,.8);
-  }
-  .repo-link:hover { color: #fff; }
 
   @media (max-width: 600px) {
     main { gap: 18px; }
     .logo { width: 92px; height: 92px; }
     .download-btn { padding: 16px 30px; }
     .sound-btn { width: 44px; height: 44px; font-size: 18px; right: 14px; bottom: 14px; }
-    .repo-link { left: 14px; bottom: 16px; }
   }
 </style>
 </head>
@@ -266,7 +253,6 @@
 </main>
 
 <button id="sound" class="sound-btn" title="소리 켜기" aria-label="소리 켜기">🔇</button>
-<a class="repo-link" href="https://github.com/K486125/bs-royale" target="_blank" rel="noopener">GitHub에서 보기</a>
 
 <script>
   const REPO = "K486125/bs-royale";
@@ -286,6 +272,19 @@
     document.body.classList.add("ready");
     loading.classList.add("hide");
     setTimeout(() => loading.remove(), 600);
+
+    // 화면을 받는 동안 영상이 이미 얼마간 흘러가 있으므로, 처음부터 다시 시작한다.
+    // (음악도 이 영상의 소리라서 같이 처음부터 나온다)
+    restartFromStart();
+  }
+
+  function restartFromStart() {
+    try {
+      bgVideo.currentTime = 0;
+    } catch (e) {
+      // 아직 되감을 수 없는 상태면 그냥 이어서 재생한다
+    }
+    bgVideo.play().catch(() => {});
   }
 
   // 얼마나 받았는지 막대에 표시한다 (영상 길이 대비 버퍼된 구간)
@@ -313,12 +312,24 @@
   const video = document.getElementById("bg");
   const soundBtn = document.getElementById("sound");
 
+  // 브라우저가 소리를 막고 있었기 때문에, 소리를 처음 켜는 순간이 음악이 실제로 들리기
+  // 시작하는 시점이다. 그 순간에도 음악이 중간부터 나오지 않도록 앞으로 되감는다.
+  let soundStarted = false;
+
   function setMuted(muted) {
     video.muted = muted;
     soundBtn.textContent = muted ? "🔇" : "🔊";
     soundBtn.title = muted ? "소리 켜기" : "소리 끄기";
     soundBtn.setAttribute("aria-label", soundBtn.title);
-    if (!muted) video.play().catch(() => {});
+
+    if (!muted) {
+      if (!soundStarted) {
+        soundStarted = true;
+        restartFromStart();
+      } else {
+        video.play().catch(() => {});
+      }
+    }
   }
 
   soundBtn.addEventListener("click", (e) => {
