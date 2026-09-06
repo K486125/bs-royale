@@ -2,7 +2,7 @@
 // 토스트(화면 아래에 하나만 잠깐 뜨는 것)와 달리, 놓치면 안 되는 소식(초대 거절/만료)에 쓴다.
 // 배경 바 없이 글자만 보여주고, 무엇보다 위에 그려진다.
 const STACK_ID = "notice-stack";
-const LIFETIME_MS = 6000;
+const LIFETIME_MS = 3500;
 const MAX_NOTICES = 4;
 
 export function pushNotice(text, kind = "") {

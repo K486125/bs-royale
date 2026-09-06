@@ -1340,7 +1340,7 @@ body.battle-page {
 }
 .notice-bar {
   color: #fff;
-  font-size: 19px;
+  font-size: 25px;
   font-weight: 900;
   text-align: center;
   line-height: 1.4;
@@ -1360,5 +1360,5 @@ body.battle-page {
   transform: translateY(0) scale(1);
 }
 @media (max-width: 700px) {
-  .notice-bar { font-size: 16px; }
+  .notice-bar { font-size: 20px; }
 }

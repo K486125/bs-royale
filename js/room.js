@@ -28,8 +28,13 @@ const db = getDatabase(app);
 
 // 이 PC의 시계가 서버와 어긋나 있어도 초대 남은 시간이 엉뚱하게 계산되지 않도록 보정한다.
 let serverTimeOffset = 0;
+let offsetReady = false;
 onValue(ref(db, ".info/serverTimeOffset"), (snap) => {
   serverTimeOffset = snap.val() || 0;
+  if (offsetReady) return;
+  offsetReady = true;
+  // 보정값이 늦게 도착하면 그동안 그려둔 요청 바의 남은 시간이 틀리므로 다시 그린다.
+  if (currentRoom) renderRequestBar(currentRoom, currentIsHost);
 });
 function serverNow() {
   return Date.now() + serverTimeOffset;
@@ -355,8 +360,13 @@ function renderRequestBar(room, isHost) {
   }
 
   const req = reqs[firstUid];
-  const remain = INVITE_TIMEOUT_MS - (serverNow() - (req.createdAt || serverNow()));
-  if (remain <= 0) {
+  // 서버 시간 보정값이 아직 안 왔으면 남은 시간을 계산할 수 없다. 이 PC 시계가 서버보다
+  // 앞서 있으면 방금 온 요청도 "이미 만료"로 계산돼 게이지가 아예 안 보였다.
+  // 보정값이 도착하면 위 리스너가 다시 그려주므로, 그전까지는 가득 찬 게이지만 보여준다.
+  const remain = offsetReady
+    ? INVITE_TIMEOUT_MS - (serverNow() - (req.createdAt || serverNow()))
+    : INVITE_TIMEOUT_MS;
+  if (offsetReady && remain <= 0) {
     // 이미 만료된 초대 -> 지우고 표시하지 않는다 (게스트 쪽에서도 스스로 거둬간다).
     expireRequest(firstUid);
     requestBarEl.classList.add("hidden");
@@ -380,14 +390,15 @@ function renderRequestBar(room, isHost) {
   const fill = requestBarEl.querySelector(".req-gauge-fill");
   fill.style.transition = "none";
   fill.style.width = `${(remain / INVITE_TIMEOUT_MS) * 100}%`;
-  requestAnimationFrame(() => {
-    fill.style.transition = `width ${remain}ms linear`;
-    fill.style.width = "0%";
-  });
+  void fill.offsetWidth; // 시작 너비를 확정시킨 뒤에 줄여야 게이지가 실제로 움직인다
+  fill.style.transition = `width ${remain}ms linear`;
+  fill.style.width = "0%";
 
   // 시간이 다 되면 방 데이터에는 아무 변화가 없으므로, 스스로 깨어나 요청을 정리한다.
   clearTimeout(requestExpireTimer);
-  requestExpireTimer = setTimeout(() => expireRequest(firstUid), remain);
+  if (offsetReady) {
+    requestExpireTimer = setTimeout(() => expireRequest(firstUid), remain);
+  }
 }
 
 // 초대는 10초만 유효하다 (게스트 쪽 타이머와 같은 값).
