@@ -1,5 +1,6 @@
 import { firebaseConfig } from "./firebase-config.js";
 import { unitFrameClass, unitNumber } from "./unit-colors.js";
+import { playSelect } from "./sfx.js";
 import { initializeApp } from "https://www.gstatic.com/firebasejs/12.18.0/firebase-app.js";
 import {
   getAuth, signInAnonymously, onAuthStateChanged,
@@ -130,6 +131,7 @@ function openAvatarPicker() {
   // 지금은 모든 프로필이 항상 선택 가능하므로 보유 수 = 전체 수
   avatarCountEl.textContent = `${AVATARS.length}/${AVATARS.length}`;
   renderAvatarGrid(avatarPickerRow, (file) => {
+    playSelect();
     applyAvatarSelection(file);
     avatarModal.classList.add("hidden");
   });

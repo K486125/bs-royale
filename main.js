@@ -35,7 +35,8 @@ const MIME_TYPES = {
   ".png": "image/png",
   ".jpg": "image/jpeg",
   ".json": "application/json",
-  ".mp4": "video/mp4"
+  ".mp4": "video/mp4",
+  ".mp3": "audio/mpeg"
 };
 
 // ES 모듈(import)은 file:// 에서 CORS 오류가 나기 때문에,

@@ -1,5 +1,6 @@
 import { firebaseConfig } from "./firebase-config.js";
 import { unitFrameClass, unitNumber } from "./unit-colors.js";
+import { playSelect } from "./sfx.js";
 import { initializeApp } from "https://www.gstatic.com/firebasejs/12.18.0/firebase-app.js";
 import {
   getAuth, signInAnonymously, onAuthStateChanged,
@@ -254,6 +255,7 @@ unitPickerRow.addEventListener("wheel", (e) => {
 }, { passive: false });
 
 async function selectUnit(slot, file) {
+  playSelect();
   const field = currentIsHost ? "hostUnits" : "guestUnits";
   const roomRef = ref(db, `rooms/${roomId}`);
 

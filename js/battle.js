@@ -1,5 +1,6 @@
 import { firebaseConfig } from "./firebase-config.js";
 import { unitFrameClass } from "./unit-colors.js";
+import { playSelect } from "./sfx.js";
 import { initializeApp } from "https://www.gstatic.com/firebasejs/12.18.0/firebase-app.js";
 import {
   getAuth, signInAnonymously, onAuthStateChanged,
@@ -204,6 +205,7 @@ function renderSidebar(myPlacements) {
 
     if (!isPlaced && !myDone) {
       card.addEventListener("click", () => {
+        playSelect();
         selectedSlot = (selectedSlot === i) ? null : i;
         renderSidebar(myPlacements);
       });
@@ -240,6 +242,7 @@ function onTileClick(e) {
   const file = myUnits[selectedSlot];
   if (!file) return;
 
+  playSelect();
   const slot = selectedSlot;
   selectedSlot = null;
   update(ref(db, `rooms/${roomId}/battle/${battleField()}`), { [key]: { slot, file } });
