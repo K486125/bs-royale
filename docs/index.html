@@ -78,12 +78,11 @@
   }
 
   /* 로딩이 끝나면 본문이 부드럽게 나타난다 */
-  main, .music-btn {
+  main {
     opacity: 0;
     transition: opacity .5s ease;
   }
-  body.ready main,
-  body.ready .music-btn { opacity: 1; }
+  body.ready main { opacity: 1; }
 
   /* 배경 영상: 화면을 잘라내며 꽉 채운다 */
   .bg-video {
@@ -203,76 +202,16 @@
   }
   .platform-note.show { display: block; }
 
-  /* 음악 버튼: 다운로드 버튼과 같은 디자인을 작게 줄여 좌측 하단에 둔다.
-     (브라우저가 소리 있는 자동재생을 막기 때문에 직접 눌러야 음악이 시작된다) */
-  .music-btn {
-    position: fixed;
-    left: 24px;
-    bottom: 24px;
-    display: inline-flex;
-    align-items: center;
-    gap: 10px;
-    background: var(--accent);
-    color: #241a00;
-    border: 3px solid var(--accent-edge);
-    border-radius: 12px;
-    padding: 13px 22px;
-    font-family: inherit;
-    font-size: 16px;
-    font-weight: 900;
-    cursor: pointer;
-    box-shadow: 0 5px 0 var(--accent-edge), 0 10px 20px rgba(0,0,0,.45);
-    transition: transform .06s ease, box-shadow .06s ease, filter .15s ease;
-  }
-  .music-btn:hover { filter: brightness(1.06); }
-  .music-btn:active {
-    transform: translateY(5px);
-    box-shadow: 0 0 0 var(--accent-edge), 0 5px 12px rgba(0,0,0,.4);
-  }
-
-  /* 버튼 안에 들어가는 켜짐/꺼짐 스위치 */
-  .music-btn .toggle {
-    position: relative;
-    width: 46px;
-    height: 28px;
-    border-radius: 999px;
-    background: #a07800;
-    border: 2px solid #8a6a00;
-    box-shadow: inset 0 2px 4px rgba(0,0,0,.4);
-    transition: background .25s ease, border-color .25s ease;
-  }
-  .music-btn .knob {
-    position: absolute;
-    top: 2px;
-    left: 2px;
-    width: 20px;
-    height: 20px;
-    border-radius: 50%;
-    background: #fff8e0;
-    box-shadow: 0 2px 3px rgba(0,0,0,.45);
-    transition: left .25s cubic-bezier(.2,.8,.3,1), background .25s ease;
-  }
-
-  .music-btn.on .toggle {
-    background: #2fa84f;
-    border-color: #1c7a37;
-  }
-  .music-btn.on .knob {
-    left: 22px;
-    background: #fff;
-  }
-
-
   @media (max-width: 600px) {
     main { gap: 18px; }
     .logo { width: 92px; height: 92px; }
     .download-btn { padding: 16px 30px; }
-    .music-btn { left: 14px; bottom: 14px; padding: 11px 16px; font-size: 14px; }
   }
 </style>
 </head>
 <body>
 
+<!-- 배경 영상은 화면용이다. 소리는 쓰지 않으므로 항상 음소거로 재생한다. -->
 <video id="bg" class="bg-video" autoplay loop muted playsinline preload="auto">
   <source src="BS_BGM.mp4" type="video/mp4">
 </video>
@@ -291,20 +230,15 @@
 
   <a id="download" class="download-btn" href="https://github.com/K486125/bs-royale/releases/latest">
     <svg class="win-icon" viewBox="0 0 24 24" aria-hidden="true">
-      <rect x="1.5" y="1.5" width="9.6" height="9.6" rx="1"/>
-      <rect x="12.9" y="1.5" width="9.6" height="9.6" rx="1"/>
-      <rect x="1.5" y="12.9" width="9.6" height="9.6" rx="1"/>
-      <rect x="12.9" y="12.9" width="9.6" height="9.6" rx="1"/>
+      <rect x="0" y="0" width="11.377" height="11.377"/>
+      <rect x="12.623" y="0" width="11.377" height="11.377"/>
+      <rect x="0" y="12.623" width="11.377" height="11.377"/>
+      <rect x="12.623" y="12.623" width="11.377" height="11.377"/>
     </svg><span class="label">Windows용 다운로드</span>
   </a>
   <p class="platform-note" id="platform-note">PC에서 다운로드 가능합니다</p>
   <p class="version" id="version">최신 버전을 확인하는 중...</p>
 </main>
-
-<button id="sound" class="music-btn" type="button" aria-pressed="false">
-  <span class="label">음악</span>
-  <span class="toggle"><span class="knob"></span></span>
-</button>
 
 <script>
   const REPO = "K486125/bs-royale";
@@ -326,7 +260,6 @@
     setTimeout(() => loading.remove(), 600);
 
     // 화면을 받는 동안 영상이 이미 얼마간 흘러가 있으므로, 처음부터 다시 시작한다.
-    // (음악도 이 영상의 소리라서 같이 처음부터 나온다)
     restartFromStart();
   }
 
@@ -357,34 +290,6 @@
 
   // 인터넷이 아주 느린 경우까지 기다리게 하지 않는다. 배경은 파란 화면으로도 충분하다.
   setTimeout(finishLoading, 6000);
-
-  // ---------- 배경 영상 소리 ----------
-  // 브라우저는 소리 있는 자동재생을 막기 때문에, 음소거로 시작하고
-  // 사용자가 화면을 한 번 건드리면 그때 소리를 켠다.
-  const video = document.getElementById("bg");
-  const soundBtn = document.getElementById("sound");
-
-  // 브라우저가 소리를 막고 있었기 때문에, 소리를 처음 켜는 순간이 음악이 실제로 들리기
-  // 시작하는 시점이다. 그 순간에도 음악이 중간부터 나오지 않도록 앞으로 되감는다.
-  let soundStarted = false;
-
-  function setMuted(muted) {
-    video.muted = muted;
-    soundBtn.classList.toggle("on", !muted);
-    soundBtn.setAttribute("aria-pressed", String(!muted));
-
-    if (!muted) {
-      if (!soundStarted) {
-        soundStarted = true;
-        restartFromStart();
-      } else {
-        video.play().catch(() => {});
-      }
-    }
-  }
-
-  // 음악은 이 버튼을 눌렀을 때만 나온다. 모르고 클릭했다가 갑자기 소리가 나는 일은 없다.
-  soundBtn.addEventListener("click", () => setMuted(!video.muted));
 
   // ---------- Windows가 아니면 버튼을 막는다 ----------
   // .exe는 PC 전용이라 폰에서는 받아도 실행할 수 없다. 받기 전에 막고 알려준다.
