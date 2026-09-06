@@ -50,6 +50,13 @@ const avatarModal = document.getElementById("avatar-modal");
 const avatarPickerRow = document.getElementById("avatar-picker-row");
 const setupAvatarImg = document.getElementById("setup-avatar-img");
 const setupAvatarFrame = document.getElementById("setup-avatar-frame");
+const appLoadingEl = document.getElementById("app-loading");
+
+// 방 생성/참가처럼 화면이 넘어가기까지 시간이 걸리는 동작 동안 로딩 화면을 덮어둔다.
+function showLoading(text) {
+  appLoadingEl.querySelector(".loading-text").textContent = text;
+  appLoadingEl.classList.remove("hidden");
+}
 
 function showToast(msg) {
   toastEl.textContent = msg;
@@ -284,6 +291,7 @@ createRoomBtn.addEventListener("click", async () => {
   if (createRoomBtn.disabled) return;
   createRoomBtn.disabled = true;
   createRoomBtn.textContent = "생성 중...";
+  showLoading("방을 만드는 중...");
 
   const roomRef = push(ref(db, "rooms"));
   await set(roomRef, {
@@ -333,6 +341,7 @@ async function goToJoinedRoom(roomId) {
   navigatingToJoinedRoom = true;
 
   redirected = true;
+  showLoading("방에 들어가는 중...");
   // 수락되면 요청 노드는 이미 지워지므로 이 예약은 무의미해지지만, 정리해두고 넘어간다.
   await onDisconnect(ref(db, `rooms/${roomId}/requests/${myUid}`)).cancel();
   window.location.href = `room.html?room=${roomId}`;
@@ -397,7 +406,6 @@ if (window.bsApi && window.bsApi.onUpdateStatus) {
 
 // 앱을 처음 켰을 때만 로딩 화면을 잠깐 보여준 뒤 닉네임 입력 화면으로 넘어간다.
 // (방에서 로비로 돌아오는 경우에는 이미 닉네임이 있으므로 그냥 바로 보여준다)
-const appLoadingEl = document.getElementById("app-loading");
 const APP_LOADING_MS = 1500;
 
 if (myName) {

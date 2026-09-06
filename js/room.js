@@ -40,6 +40,19 @@ const readyBtn = document.getElementById("ready-btn");
 const toastEl = document.getElementById("toast");
 const unitModal = document.getElementById("unit-modal");
 const unitPickerRow = document.getElementById("unit-picker-row");
+const roomLoadingEl = document.getElementById("room-loading");
+
+// 방 데이터가 도착해 화면이 처음 그려질 때까지 로딩 화면으로 덮어둔다.
+// 너무 빨리 사라져 깜빡이지 않도록 최소 노출 시간을 둔다.
+const ROOM_LOADING_MIN_MS = 700;
+const roomLoadStartedAt = Date.now();
+let roomLoadingDone = false;
+function hideRoomLoading() {
+  if (roomLoadingDone) return;
+  roomLoadingDone = true;
+  const wait = Math.max(0, ROOM_LOADING_MIN_MS - (Date.now() - roomLoadStartedAt));
+  setTimeout(() => roomLoadingEl.classList.add("hidden"), wait);
+}
 
 function showToast(msg) {
   toastEl.textContent = msg;
@@ -107,6 +120,7 @@ function watchRoom() {
 
     renderTeamScreen(room, isHost);
     renderRequestBar(room, isHost);
+    hideRoomLoading();
   });
 
   leaveBtn.addEventListener("click", () => leaveRoom(roomRef));
