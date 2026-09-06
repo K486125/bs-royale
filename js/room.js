@@ -455,6 +455,7 @@ async function acceptRequest(guestUid, req) {
       room.chat = addJoinNotice(room.chat, { key: joinKey, uid: guestUid, name: req.guestName });
       room.guestChatSince = joinKey;
       room.guestTyping = null;
+      room.matchEndPending = null; // 지난 매치의 알림 예약이 남아 있으면 지운다
       return room;
     });
   } catch (err) {

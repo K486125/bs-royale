@@ -579,6 +579,7 @@ async function handleOpponentLeft() {
       room.battle = null;
       room.hostTyping = null;
       room.guestTyping = null;
+      room.matchEndPending = null;
       return room;
     }
 
@@ -598,6 +599,7 @@ async function handleOpponentLeft() {
       room.battle = null;
       room.hostTyping = null;
       room.guestTyping = null;
+      room.matchEndPending = null;
       return room;
     }
 
