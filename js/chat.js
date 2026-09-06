@@ -24,6 +24,7 @@ let unread = 0;
 let renderedSig = "";
 let lastSeenCount = 0;
 let firstRender = true;
+let shownKeys = new Set(); // 이미 화면에 그려진 메시지 키 (새로 온 것만 애니메이션)
 let typingSent = false;
 let typingTimer = null;
 
@@ -188,15 +189,15 @@ export function renderChat(room, isHost) {
   logEl.innerHTML = keys.map((k) => {
     const m = chat[k] || {};
     if (m.type === "match") {
-      return `<div class="chat-notice match">매치가 종료되었습니다.</div>`;
+      return `<div class="chat-notice match" data-key="${k}">매치가 종료되었습니다.</div>`;
     }
     if (m.type === "leave" || m.type === "join") {
       const what = m.type === "join" ? "대기실에 참가했습니다." : "나갔습니다.";
-      return `<div class="chat-notice ${m.type}">${escapeHtml(m.name || "상대방")}님이 ${what}</div>`;
+      return `<div class="chat-notice ${m.type}" data-key="${k}">${escapeHtml(m.name || "상대방")}님이 ${what}</div>`;
     }
     const mine = m.uid === myUid;
     return `
-      <div class="chat-msg ${mine ? "mine" : "theirs"}">
+      <div class="chat-msg ${mine ? "mine" : "theirs"}" data-key="${k}">
         <div class="chat-bubble">
           <span class="chat-who">${escapeHtml(mine ? "나" : (m.name || "상대방"))}:</span>
           <span class="chat-text">${escapeHtml(m.text)}</span>
@@ -204,6 +205,15 @@ export function renderChat(room, isHost) {
       </div>
     `;
   }).join("");
+
+  // 목록 전체를 다시 그리기 때문에, 이번에 새로 생긴 것만 골라 등장 애니메이션을 준다.
+  // (처음 화면에 들어왔을 때 이미 쌓여 있던 대화는 그냥 놓여 있어야 한다)
+  if (!firstRender) {
+    Array.from(logEl.children).forEach((el) => {
+      if (!shownKeys.has(el.dataset.key)) el.classList.add("enter");
+    });
+  }
+  shownKeys = new Set(keys);
 
   // 안 읽은 개수: 채팅창이 닫혀 있는 동안 새로 들어온 상대 메시지만 센다.
   // (전투에서 대기실로 돌아왔을 때처럼 이미 쌓여 있던 대화는 새 메시지가 아니다)

@@ -1385,3 +1385,20 @@ body.battle-page {
 @media (max-width: 700px) {
   .match-end-text { font-size: 52px; }
 }
+
+/* 새로 도착한 메시지만 나타나는 동작을 준다 (내 것은 오른쪽에서, 상대 것은 왼쪽에서) */
+@keyframes chat-in-right {
+  from { opacity: 0; transform: translateX(26px) scale(.94); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes chat-in-left {
+  from { opacity: 0; transform: translateX(-26px) scale(.94); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes chat-notice-in {
+  from { opacity: 0; transform: translateY(10px) scale(.96); }
+  to { opacity: 1; transform: none; }
+}
+.chat-msg.enter.mine .chat-bubble { animation: chat-in-right .3s cubic-bezier(.16,.9,.3,1); }
+.chat-msg.enter.theirs .chat-bubble { animation: chat-in-left .3s cubic-bezier(.16,.9,.3,1); }
+.chat-notice.enter { animation: chat-notice-in .3s cubic-bezier(.16,.9,.3,1); }
