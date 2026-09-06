@@ -120,6 +120,26 @@
     text-shadow: 0 2px 4px rgba(0,0,0,.8);
   }
 
+  /* Windows가 아닌 기기: .exe는 PC에서만 실행되므로 버튼을 눌리지 않게 막는다 */
+  .download-btn.disabled {
+    background: #5a5f69;
+    color: #d0d3da;
+    border-color: #3c4048;
+    box-shadow: 0 6px 0 #3c4048, 0 12px 24px rgba(0,0,0,.45);
+    cursor: not-allowed;
+    pointer-events: none;
+  }
+
+  .platform-note {
+    display: none;
+    margin: 0;
+    font-size: clamp(14px, 2vw, 17px);
+    font-weight: 800;
+    color: #ffd85c;
+    text-shadow: 0 2px 0 #000, 0 4px 10px rgba(0,0,0,.7);
+  }
+  .platform-note.show { display: block; }
+
   /* 영상 소리 켜기/끄기 (브라우저는 소리 있는 자동재생을 막으므로 반드시 필요하다) */
   .sound-btn {
     position: fixed;
@@ -175,8 +195,9 @@
   <p class="tagline">친구와 1대1로 겨루는 실시간 대전 게임</p>
 
   <a id="download" class="download-btn" href="https://github.com/K486125/bs-royale/releases/latest">
-    <span class="arrow">⬇</span><span>Windows용 다운로드</span>
+    <span class="arrow">⬇</span><span class="label">Windows용 다운로드</span>
   </a>
+  <p class="platform-note" id="platform-note">PC에서 사용 가능합니다</p>
   <p class="version" id="version">최신 버전을 확인하는 중...</p>
 </main>
 
@@ -215,10 +236,21 @@
   document.addEventListener("click", unmuteOnce);
   document.addEventListener("keydown", unmuteOnce);
 
+  // ---------- Windows가 아니면 버튼을 막는다 ----------
+  // .exe는 PC 전용이라 폰에서는 받아도 실행할 수 없다. 받기 전에 막고 알려준다.
+  const isWindows = /Windows NT/i.test(navigator.userAgent);
+
   // ---------- 최신 설치 파일 연결 ----------
   // 버전이 올라가도 이 페이지를 고칠 필요가 없도록, 최신 릴리스를 물어봐서 링크를 채운다.
   const link = document.getElementById("download");
   const versionText = document.getElementById("version");
+
+  if (!isWindows) {
+    link.classList.add("disabled");
+    link.removeAttribute("href");
+    link.querySelector(".label").textContent = "다운로드 불가";
+    document.getElementById("platform-note").classList.add("show");
+  }
 
   fetch(`https://api.github.com/repos/${REPO}/releases/latest`)
     .then((res) => (res.ok ? res.json() : Promise.reject(res.status)))
