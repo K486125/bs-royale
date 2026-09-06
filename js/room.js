@@ -10,7 +10,7 @@ import {
   setPersistence, browserSessionPersistence
 } from "https://www.gstatic.com/firebasejs/12.18.0/firebase-auth.js";
 import {
-  getDatabase, ref, set, update, onValue, onDisconnect, runTransaction, serverTimestamp
+  getDatabase, ref, set, update, remove, onValue, onDisconnect, runTransaction, serverTimestamp
 } from "https://www.gstatic.com/firebasejs/12.18.0/firebase-database.js";
 
 const AVATAR_PATH = "BS_Plr_Icons/";
@@ -648,7 +648,23 @@ async function leaveRoom(roomRef) {
 
   const noticeKey = newChatKey(db, roomId);
 
-  await runTransaction(roomRef, (room) => {
+  let committed = false;
+  try {
+    const result = await runTransaction(roomRef, leaveUpdater(noticeKey));
+    committed = !!(result && result.committed);
+  } catch (err) {
+    console.error("방 나가기 정리 실패:", err);
+  }
+
+  // 정리가 실패하면 방에 내가 남아 있는 것으로 보여서, 로비에 도착하자마자 이 방으로
+  // 다시 끌려들어간다. 그래서 실패했을 때는 꼭 필요한 것만 골라 한 번 더 시도한다.
+  if (!committed) await forceLeave(noticeKey);
+
+  backToLobby();
+}
+
+function leaveUpdater(noticeKey) {
+  return (room) => {
     if (!room) return room;
 
     if (room.hostUid === myUid) {
@@ -688,7 +704,54 @@ async function leaveRoom(roomRef) {
     }
 
     return room;
-  });
+  };
+}
 
-  backToLobby();
+// 방 전체를 다시 쓰는 트랜잭션이 거부됐을 때를 위한 최소한의 정리.
+async function forceLeave(noticeKey) {
+  const room = currentRoom || {};
+  const isHost = room.hostUid === myUid;
+
+  try {
+    if (isHost && !room.guestUid) {
+      await remove(ref(db, `rooms/${roomId}`)); // 아무도 안 남음
+      return;
+    }
+
+    const updates = {
+      guestUid: null,
+      guestName: null,
+      guestAvatar: null,
+      guestUnits: null,
+      guestReady: false,
+      guestOnline: null,
+      guestChatSince: null,
+      guestNavigating: null,
+      guestTyping: null,
+      hostTyping: null,
+      hostReady: false,
+      playerCount: 1,
+      status: "waiting",
+      battle: null,
+      matchEndPending: null
+    };
+
+    if (isHost) {
+      // 남은 게스트가 방장이 된다.
+      updates.hostUid = room.guestUid;
+      updates.hostName = room.guestName;
+      updates.hostAvatar = room.guestAvatar;
+      updates.hostUnits = room.guestUnits || null;
+      updates.hostOnline = room.guestOnline !== false;
+      updates.hostChatSince = room.guestChatSince || null;
+      updates.hostNavigating = null;
+    }
+
+    const name = isHost ? room.hostName : room.guestName;
+    updates[`chat/${noticeKey}`] = { type: "leave", uid: myUid, name: name || "상대방" };
+
+    await update(ref(db, `rooms/${roomId}`), updates);
+  } catch (err) {
+    console.error("방 나가기 재시도 실패:", err);
+  }
 }

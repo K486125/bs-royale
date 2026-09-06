@@ -419,7 +419,16 @@ function renderCountdown(battle) {
     if (remain <= 0) {
       clearInterval(countdownInterval);
       // 아직 실제 전투 로직이 없으므로 카운트다운이 끝나면 바로 매치 종료로 넘어간다.
-      if (isHost) finishMatch();
+      // 방장이 대표로 기록하되, 어떤 이유로 기록되지 않으면 상대도 카운트다운 0에서 멈추므로
+      // 몇 초 뒤에는 남은 쪽이 대신 기록한다.
+      if (isHost) {
+        finishMatch();
+      } else {
+        setTimeout(() => {
+          const b = currentRoom && currentRoom.battle;
+          if (b && b.phase === "countdown") finishMatch();
+        }, 4000);
+      }
     }
   };
   tick();
@@ -431,10 +440,22 @@ let finishRequested = false;
 async function finishMatch() {
   if (finishRequested) return;
   finishRequested = true;
-  await update(ref(db, `rooms/${roomId}/battle`), {
-    phase: "finished",
-    finishedAt: serverTimestamp()
-  });
+
+  for (let i = 0; i < 3; i++) {
+    try {
+      await update(ref(db, `rooms/${roomId}/battle`), {
+        phase: "finished",
+        finishedAt: serverTimestamp()
+      });
+      return;
+    } catch (err) {
+      console.error(`매치 종료 기록 ${i + 1}번째 실패:`, err);
+      await wait(1000);
+    }
+  }
+  // 기록이 안 되면 상대 화면은 카운트다운 0에서 멈춘다. 최소한 이 사람은 내보낸다.
+  // (그 사이 상대가 기록해서 이미 종료 절차가 시작됐다면 그대로 둔다)
+  if (!finishSequenceStarted) handleFinish({ phase: "finished" });
 }
 
 let finishSequenceStarted = false;
@@ -455,16 +476,32 @@ function handleFinish(battle) {
     battleMain.classList.add("hidden");
     // 호스트가 대표로 전투 데이터를 지운다. 준비 상태도 풀어야 대기실에서
     // 곧바로 다음 전투가 시작되지 않는다. 양쪽 모두 battle이 사라지면 대기실로 돌아간다.
-    if (isHost) {
-      update(ref(db, `rooms/${roomId}`), {
+    if (isHost) clearFinishedBattle();
+    // 방장 쪽 쓰기가 실패하면 둘 다 로딩 화면에 갇히므로, 남은 쪽도 잠시 뒤 대신 지운다.
+    else setTimeout(() => {
+      if (currentRoom && currentRoom.battle) clearFinishedBattle();
+    }, 2500);
+  }, MATCH_END_MS);
+}
+
+async function clearFinishedBattle() {
+  for (let i = 0; i < 3; i++) {
+    try {
+      await update(ref(db, `rooms/${roomId}`), {
         battle: null,
         hostReady: false,
         guestReady: false,
         // 채팅의 매치 종료 알림은 둘 다 대기실에 도착한 뒤에 남긴다 (room.js 참고).
         matchEndPending: true
-      }).catch((err) => console.error("전투 정리 실패:", err));
+      });
+      return;
+    } catch (err) {
+      console.error(`전투 정리 ${i + 1}번째 실패:`, err);
+      await wait(1200);
     }
-  }, MATCH_END_MS);
+  }
+  pushNotice("방을 정리하지 못했습니다. 대기실로 돌아갑니다.");
+  goRoom();
 }
 
 // ---------- 로딩 -> 배치 화면 전환 (최소 노출 시간 보장) ----------
@@ -625,6 +662,13 @@ async function handleOpponentLeft() {
   const oppName = (isHost ? room.guestName : room.hostName) || "상대방";
   const stillGone = isHost ? room.guestOnline === false : room.hostOnline === false;
 
+  // 알림을 띄우는 사이에 상대가 돌아왔다면(순간적인 연결 끊김) 아무것도 건드리지 않는다.
+  // 방 데이터가 다시 도착하면 전투 화면도 원래대로 돌아온다.
+  if (!oppUid || !stillGone) {
+    leaveAnnounced = false;
+    return;
+  }
+
   const updates = {
     guestUid: null,
     guestName: null,
@@ -654,7 +698,7 @@ async function handleOpponentLeft() {
     updates.hostNavigating = null;
   }
 
-  if (oppUid && stillGone && !hasLeaveNotice(room.chat, oppUid)) {
+  if (!hasLeaveNotice(room.chat, oppUid)) {
     updates[`chat/${newChatKey(db, roomId)}`] = { type: "leave", uid: oppUid, name: oppName };
   }
 

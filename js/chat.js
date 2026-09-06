@@ -6,6 +6,7 @@
 import {
   ref, push, update, onDisconnect, runTransaction
 } from "https://www.gstatic.com/firebasejs/12.18.0/firebase-database.js";
+import { pushNotice } from "./notice.js";
 
 const MAX_MESSAGES = 30; // 이만큼 쌓이는 순간
 const KEEP_MESSAGES = 6; // 최근 이만큼만 남기고 위쪽 24개를 지운다
@@ -97,11 +98,18 @@ async function send() {
   // 그래야 "추가 + 오래된 것 정리"가 한 번에 이뤄져서 양쪽이 동시에 보내도 어긋나지 않는다.
   const key = push(ref(db, `rooms/${roomId}/chat`)).key;
 
-  await runTransaction(ref(db, `rooms/${roomId}/chat`), (chat) => {
-    const next = chat || {};
-    next[key] = { uid, name, text };
-    return trimChat(next);
-  });
+  try {
+    await runTransaction(ref(db, `rooms/${roomId}/chat`), (chat) => {
+      const next = chat || {};
+      next[key] = { uid, name, text };
+      return trimChat(next);
+    });
+  } catch (err) {
+    // 조용히 사라지면 보낸 줄 알기 때문에, 실패를 알리고 쓴 내용을 되돌려준다.
+    console.error("메시지 전송 실패:", err);
+    inputEl.value = text;
+    pushNotice("메시지를 보내지 못했습니다.");
+  }
 }
 
 // ---------- 다른 화면(대기실/전투)에서 쓰는 도우미 ----------

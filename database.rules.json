@@ -16,7 +16,7 @@
       ".read": "auth != null",
 
       "$roomId": {
-        ".write": "auth != null && ((!data.exists() && newData.child('hostUid').val() === auth.uid) || (data.exists() && (data.child('hostUid').val() === auth.uid || data.child('guestUid').val() === auth.uid)) || (data.exists() && !newData.exists() && data.child('hostOnline').val() !== true && (!data.child('guestUid').exists() || data.child('guestOnline').val() !== true) && data.child('lastSeen').val() < now - 60000))",
+        ".write": "auth != null && ((!data.exists() && newData.child('hostUid').val() === auth.uid) || (data.exists() && (data.child('hostUid').val() === auth.uid || data.child('guestUid').val() === auth.uid)) || (data.exists() && !newData.exists() && data.child('hostOnline').val() !== true && (!data.child('guestUid').exists() || data.child('guestOnline').val() !== true) && (!data.child('lastSeen').exists() || data.child('lastSeen').val() < now - 60000)))",
 
         "hostUid": {
           ".validate": "newData.isString() && (newData.val() === auth.uid || newData.val() === root.child('rooms').child($roomId).child('hostUid').val() || newData.val() === root.child('rooms').child($roomId).child('guestUid').val())"
