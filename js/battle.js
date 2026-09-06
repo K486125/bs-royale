@@ -2,6 +2,7 @@ import { firebaseConfig } from "./firebase-config.js";
 import { unitFrameClass } from "./unit-colors.js";
 import { playSelect } from "./sfx.js";
 import { newChatKey, addLeaveNotice } from "./chat.js";
+import { initServerTime, serverNow, serverTimeReady, whenServerTime } from "./server-time.js";
 import { initializeApp } from "https://www.gstatic.com/firebasejs/12.18.0/firebase-app.js";
 import {
   getAuth, signInAnonymously, onAuthStateChanged,
@@ -22,16 +23,8 @@ const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getDatabase(app);
 
-// PC 시계가 서버 시간과 어긋나 있으면 placingStartedAt 같은 서버 타임스탬프와
-// Date.now()를 직접 비교했을 때 즉시 "시간 초과"로 잘못 계산될 수 있다.
-// Firebase가 제공하는 표준 오프셋으로 보정한 "서버 기준 현재 시각"을 대신 쓴다.
-let serverTimeOffset = 0;
-onValue(ref(db, ".info/serverTimeOffset"), (snap) => {
-  serverTimeOffset = snap.val() || 0;
-});
-function serverNow() {
-  return Date.now() + serverTimeOffset;
-}
+// 배치 시간/카운트다운은 모두 서버 타임스탬프 기준이므로 서버 시각으로 계산한다.
+initServerTime(db);
 
 const params = new URLSearchParams(location.search);
 const roomId = params.get("room");
@@ -279,6 +272,16 @@ function renderTimer(battle) {
   }
   timerEl.classList.remove("hidden");
 
+  // 서버 시각을 아직 모르면 남은 시간을 계산할 수 없다. 보정 전에 계산하면 PC 시계 오차만큼
+  // 엉뚱한 값이 나오므로(시계가 빠른 PC에서는 즉시 0), 알게 될 때까지 전체 시간을 보여준다.
+  if (!serverTimeReady()) {
+    timerEl.textContent = `배치 시간: 0:${String(PLACING_MS / 1000).padStart(2, "0")}`;
+    whenServerTime(() => {
+      if (currentRoom && currentRoom.battle) renderTimer(currentRoom.battle);
+    });
+    return;
+  }
+
   const tick = () => {
     const remain = Math.max(0, PLACING_MS - (serverNow() - battle.placingStartedAt));
     const sec = Math.ceil(remain / 1000);
@@ -359,6 +362,14 @@ function renderCountdown(battle) {
   }
   countdownOverlay.classList.remove("hidden");
 
+  if (!serverTimeReady()) {
+    countdownNumberEl.textContent = "3";
+    whenServerTime(() => {
+      if (currentRoom && currentRoom.battle) renderCountdown(currentRoom.battle);
+    });
+    return;
+  }
+
   const tick = () => {
     const remain = Math.max(0, 3000 - (serverNow() - battle.countdownStartedAt));
     const n = Math.ceil(remain / 1000);
@@ -393,6 +404,14 @@ let loadingAdvanceTimer = null;
 async function maybeAdvancePhase(room) {
   const battle = room.battle;
   if (!battle) return;
+
+  // 서버 시각을 모르는 동안에는 판단을 미룬다 (시계가 어긋난 PC에서 단계가 건너뛰지 않도록).
+  if (!serverTimeReady()) {
+    whenServerTime(() => {
+      if (currentRoom) maybeAdvancePhase(currentRoom);
+    });
+    return;
+  }
 
   if (battle.phase === "loading") {
     const elapsed = serverNow() - (battle.createdAt || serverNow());
