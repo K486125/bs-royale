@@ -4,6 +4,7 @@ import { playSelect } from "./sfx.js";
 import { newChatKey, addJoinNotice } from "./chat.js";
 import { loadSettings, saveSettings } from "./settings.js";
 import { pushNotice } from "./notice.js";
+import { initServerTime, serverNow, serverTimeReady } from "./server-time.js";
 import { initializeApp } from "https://www.gstatic.com/firebasejs/12.18.0/firebase-app.js";
 import {
   getAuth, signInAnonymously, onAuthStateChanged,
@@ -27,6 +28,7 @@ const DEFAULT_UNIT = "Shelly_001_Icon.png";
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getDatabase(app);
+initServerTime(db);
 
 let myUid = null;
 let myName = sessionStorage.getItem("bs_name") || "";
@@ -308,7 +310,31 @@ function watchRooms() {
 
     renderRoomList();
     updateCreateButton();
+    cleanupAbandonedRooms();
     hideLoading(); // 방 목록까지 그려졌으면 로비가 준비된 것
+  });
+}
+
+// 아무도 접속해 있지 않은 방은 남겨둘 이유가 없다 (앱을 강제 종료했거나 방치된 방).
+// 목록에서 감추기만 하면 데이터가 계속 쌓이므로, 로비에 있는 사람이 지나가면서 치운다.
+const ABANDONED_MS = 60000; // 마지막 접속 흔적이 이만큼 지난 방
+const cleanupTried = new Set(); // 실패해도 같은 방을 계속 다시 지우려 하지 않는다
+
+function cleanupAbandonedRooms() {
+  if (!serverTimeReady()) return; // 서버 시각을 알아야 방치 여부를 판단할 수 있다
+
+  Object.entries(roomsCache).forEach(([id, room]) => {
+    if (cleanupTried.has(id) || id === joinedRoomId) return;
+    if (room.hostOnline === true) return;
+    if (room.guestUid && room.guestOnline === true) return;
+
+    const seen = room.lastSeen || room.createdAt || 0;
+    if (!seen || serverNow() - seen < ABANDONED_MS) return;
+
+    cleanupTried.add(id);
+    remove(ref(db, `rooms/${id}`)).catch((err) => {
+      console.error("방치된 방 정리 실패:", err);
+    });
   });
 }
 
