@@ -48,6 +48,7 @@ const roomListEl = document.getElementById("room-list");
 const toastEl = document.getElementById("toast");
 const avatarModal = document.getElementById("avatar-modal");
 const avatarPickerRow = document.getElementById("avatar-picker-row");
+const avatarCountEl = document.getElementById("avatar-count");
 const setupAvatarImg = document.getElementById("setup-avatar-img");
 const setupAvatarFrame = document.getElementById("setup-avatar-frame");
 const appLoadingEl = document.getElementById("app-loading");
@@ -118,6 +119,8 @@ function applyAvatarSelection(file) {
 }
 
 function openAvatarPicker() {
+  // 지금은 모든 프로필이 항상 선택 가능하므로 보유 수 = 전체 수
+  avatarCountEl.textContent = `${AVATARS.length}/${AVATARS.length}`;
   renderAvatarGrid(avatarPickerRow, (file) => {
     applyAvatarSelection(file);
     avatarModal.classList.add("hidden");

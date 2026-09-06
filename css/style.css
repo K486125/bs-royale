@@ -292,6 +292,23 @@ ul.avatar-scroll-row {
 .avatar-scroll-row .bs-card { flex-shrink: 0; }
 .avatar-scroll-row::-webkit-scrollbar { display: none; }
 .modal-box h2 { margin: 0; font-size: 16px; }
+
+.picker-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.picker-count {
+  font-weight: 900;
+  font-size: 14px;
+  color: var(--accent);
+  background: #10152c;
+  border: 2px solid #3a4480;
+  border-radius: 8px;
+  padding: 5px 10px;
+  white-space: nowrap;
+}
 .modal-box input {
   padding: 12px 14px;
   border-radius: 8px;
@@ -942,6 +959,7 @@ body.battle-page {
   /* 모달 (닉네임 설정 / 프로필 선택 / 유닛 선택) */
   .modal-box { padding: 36px; gap: 18px; }
   .modal-box h2 { font-size: 21px; }
+  .picker-count { font-size: 18px; padding: 7px 14px; border-width: 3px; }
   .modal-box input { padding: 15px 18px; font-size: 21px; }
   .avatar-picker-box { width: 780px; } /* 카드가 200px로 커지므로 함께 확대 */
   .name-setup-box { width: 500px; }

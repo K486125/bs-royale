@@ -40,6 +40,7 @@ const readyBtn = document.getElementById("ready-btn");
 const toastEl = document.getElementById("toast");
 const unitModal = document.getElementById("unit-modal");
 const unitPickerRow = document.getElementById("unit-picker-row");
+const unitCountEl = document.getElementById("unit-count");
 const roomLoadingEl = document.getElementById("room-loading");
 
 // 방 데이터가 도착해 화면이 처음 그려질 때까지 로딩 화면으로 덮어둔다.
@@ -223,6 +224,8 @@ function unitPickCardMarkup(file) {
 }
 
 function openUnitPicker(slot) {
+  // 지금은 모든 유닛이 항상 선택 가능하므로 보유 수 = 전체 수
+  unitCountEl.textContent = `${AVATARS.length}/${AVATARS.length}`;
   unitPickerRow.innerHTML = AVATARS.map(unitPickCardMarkup).join("");
   unitPickerRow.scrollLeft = 0;
   unitPickerRow.querySelectorAll(".pick-unit").forEach((el) => {
