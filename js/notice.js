@@ -83,13 +83,6 @@ function collapse(el) {
   el.style.marginTop = "0px";
 }
 
-// 화면에 떠 있는 알림을 모두 걷어낸다 (매치가 끝나 카운트다운 문구가 필요 없어질 때 등).
-export function clearNotices() {
-  const stack = document.getElementById(STACK_ID);
-  if (!stack) return;
-  alive(stack).forEach(remove);
-}
-
 function done(duration) {
   return new Promise((resolve) => setTimeout(resolve, duration + EXIT_MS + 40));
 }

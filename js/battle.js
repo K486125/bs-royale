@@ -5,7 +5,7 @@ import {
   newChatKey, watchChatData, isLastLeaveNotice, noticeEntry, trimRootUpdates
 } from "./chat.js";
 import { initServerTime, serverNow, serverTimeReady, whenServerTime } from "./server-time.js";
-import { pushNotice, clearNotices } from "./notice.js";
+import { pushNotice } from "./notice.js";
 import { initializeApp } from "https://www.gstatic.com/firebasejs/12.18.0/firebase-app.js";
 import {
   getAuth, signInAnonymously, onAuthStateChanged,
@@ -23,9 +23,6 @@ const PLACING_MS = 60000;
 const LOADING_MIN_MS = 1400; // 로딩 화면 최소 노출 시간 (버벅거림 방지용 체감 대기)
 const MATCH_END_MS = 1800; // "매치 종료" 문구를 보여주는 시간
 const LEAVE_NOTICE_MS = 1100; // 상대 퇴장 알림을 보여주는 시간 (이후 로딩 화면)
-// 카운트 하나가 화면에 남아 있는 시간. 1초보다 길어서 다음 숫자가 아래에 생길 때
-// 앞의 숫자가 아직 남아 있고, 그 뒤에 천천히 접히며 사라진다.
-const COUNTDOWN_NOTICE_MS = 1600;
 
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
@@ -56,6 +53,8 @@ let matchFinished = false; // 정상 종료로 대기실에 돌아가는 중인�
 const loadingOverlay = document.getElementById("loading-overlay");
 const battleMain = document.getElementById("battle-main");
 const sidebarEl = document.getElementById("unit-slots");
+const countdownOverlay = document.getElementById("countdown-overlay");
+const countdownNumberEl = document.getElementById("countdown-number");
 const autoPlaceBtn = document.getElementById("auto-place");
 const mapEl = document.getElementById("battle-map");
 const timerEl = document.getElementById("placement-timer");
@@ -476,24 +475,18 @@ function maybeAutoComplete(myPlacements) {
   if (allPlaced) markDone();
 }
 
-// ---------- 카운트다운 (3,2,1 - 화면 한가운데 알림으로 표시) ----------
-// 어느 카운트다운의 몇 초를 이미 보여줬는지 기억해둔다.
-// 방 데이터가 도착할 때마다 이 함수가 다시 불리기 때문에, 이게 없으면
-// 같은 숫자의 애니메이션이 계속 다시 재생되어 덜덜 떨리는 것처럼 보인다.
-let countdownShownAt = null;
-let countdownShownNumber = 0;
-
+// ---------- 카운트다운 (3,2,1,0에서 멈춤 - 이후 게임 로직은 아직 없음) ----------
 function renderCountdown(battle) {
   clearInterval(countdownInterval);
 
   if (battle.phase !== "countdown" || !battle.countdownStartedAt) {
-    countdownShownAt = null;
-    countdownShownNumber = 0;
+    countdownOverlay.classList.add("hidden");
     return;
   }
+  countdownOverlay.classList.remove("hidden");
 
-  // 서버 시각을 알아야 남은 시간을 계산할 수 있다 (PC 시계가 어긋나 있어도 정확하도록).
   if (!serverTimeReady()) {
+    countdownNumberEl.textContent = "3";
     whenServerTime(() => {
       if (currentRoom && currentRoom.battle) renderCountdown(currentRoom.battle);
     });
@@ -503,16 +496,7 @@ function renderCountdown(battle) {
   const tick = () => {
     const remain = Math.max(0, 3000 - (serverNow() - battle.countdownStartedAt));
     const n = Math.ceil(remain / 1000);
-
-    // 초가 바뀔 때마다 같은 자리에서 문구만 갈아끼우고 등장 애니메이션을 다시 재생한다.
-    if (n > 0 && (countdownShownAt !== battle.countdownStartedAt || countdownShownNumber !== n)) {
-      countdownShownAt = battle.countdownStartedAt;
-      countdownShownNumber = n;
-      // 그룹으로 묶지 않는다. 초마다 새 알림이 아래에 하나씩 더 생기고,
-      // 앞의 숫자는 잠시 더 남아 있다가 자연스럽게 접히며 사라진다.
-      pushNotice(`잠시 후 매치가 시작됩니다. ${n}s`, { duration: COUNTDOWN_NOTICE_MS });
-    }
-
+    countdownNumberEl.textContent = String(n);
     if (remain <= 0) {
       clearInterval(countdownInterval);
       // 아직 실제 전투 로직이 없으므로 카운트다운이 끝나면 바로 매치 종료로 넘어간다.
@@ -563,7 +547,7 @@ function handleFinish(battle) {
 
   clearInterval(timerInterval);
   clearInterval(countdownInterval);
-  clearNotices(); // 남아 있던 카운트다운 문구가 "매치 종료" 위에 겹치지 않도록
+  countdownOverlay.classList.add("hidden");
   matchEndOverlay.classList.remove("hidden");
 
   setTimeout(() => {
