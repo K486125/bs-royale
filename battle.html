@@ -20,7 +20,17 @@
 </div>
 
 <main id="battle-main" class="battle-main hidden">
-  <aside id="unit-sidebar" class="unit-sidebar"></aside>
+  <aside id="unit-sidebar" class="unit-sidebar">
+    <div id="unit-slots" class="unit-slots"></div>
+
+    <!-- 개발/테스트용: 켜두면 배치 단계에서 유닛 3개가 알아서 무작위로 놓인다 -->
+    <div class="auto-place">
+      <span class="auto-place-label">자동 배치</span>
+      <button id="auto-place" class="auto-toggle" type="button" aria-pressed="false" aria-label="자동 배치">
+        <span class="knob"></span>
+      </button>
+    </div>
+  </aside>
 
   <div class="battle-center">
     <div id="placement-timer" class="placement-timer hidden">배치 시간: 1:00</div>

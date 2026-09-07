@@ -55,7 +55,8 @@ let matchFinished = false; // 정상 종료로 대기실에 돌아가는 중인�
 
 const loadingOverlay = document.getElementById("loading-overlay");
 const battleMain = document.getElementById("battle-main");
-const sidebarEl = document.getElementById("unit-sidebar");
+const sidebarEl = document.getElementById("unit-slots");
+const autoPlaceBtn = document.getElementById("auto-place");
 const mapEl = document.getElementById("battle-map");
 const timerEl = document.getElementById("placement-timer");
 const matchEndOverlay = document.getElementById("match-end-overlay");
@@ -253,13 +254,88 @@ function renderSidebar(myPlacements) {
     // 사이드바에서 유닛을 고르는 것만으로는 소리를 내지 않는다.
     // 효과음은 실제로 타일에 배치했을 때만 난다 (onTileClick 참고).
     if (!isPlaced && !myDone) {
-      card.addEventListener("click", () => {
-        selectedSlot = (selectedSlot === i) ? null : i;
-        renderSidebar(myPlacements);
-      });
+      card.addEventListener("click", () => selectUnitSlot(i));
     }
     sidebarEl.appendChild(card);
   }
+}
+
+// 사이드바 클릭과 숫자 키가 같은 길을 쓰도록 한 곳에 모은다.
+function selectUnitSlot(slot) {
+  const battle = currentRoom && currentRoom.battle;
+  if (!battle || battle.phase !== "placing" || myDone) return;
+  if (!myUnits[slot]) return;
+
+  const myPlacements = battle[battleField()] || {};
+  if (placedSlotSet(myPlacements).has(slot)) return; // 이미 놓은 유닛
+
+  selectedSlot = (selectedSlot === slot) ? null : slot;
+  renderSidebar(myPlacements);
+}
+
+// 1, 2, 3 키로 유닛을 고른다. 같은 키를 다시 누르면 선택이 풀린다.
+window.addEventListener("keydown", (e) => {
+  if (e.repeat || e.ctrlKey || e.altKey || e.metaKey) return;
+  const slot = ["1", "2", "3"].indexOf(e.key);
+  if (slot !== -1) selectUnitSlot(slot);
+});
+
+// ---------- 자동 배치 (개발/테스트용) ----------
+// 켜두면 배치 단계가 시작되는 순간 내 유닛을 내 진영 빈칸에 무작위로 한 번에 놓는다.
+// 배치가 끝나면 평소처럼 자동으로 "배치 완료"까지 이어진다.
+const AUTO_PLACE_KEY = "bs_auto_place";
+let autoPlace = localStorage.getItem(AUTO_PLACE_KEY) === "1";
+let autoPlaceInFlight = false;
+
+function renderAutoPlaceBtn() {
+  autoPlaceBtn.classList.toggle("on", autoPlace);
+  autoPlaceBtn.setAttribute("aria-pressed", String(autoPlace));
+}
+
+autoPlaceBtn.addEventListener("click", () => {
+  autoPlace = !autoPlace;
+  localStorage.setItem(AUTO_PLACE_KEY, autoPlace ? "1" : "0");
+  renderAutoPlaceBtn();
+  // 배치 단계 도중에 켰다면 기다리지 않고 바로 놓아준다.
+  if (autoPlace && currentRoom && currentRoom.battle) {
+    maybeAutoPlace(currentRoom.battle[battleField()] || {});
+  }
+});
+renderAutoPlaceBtn();
+
+function maybeAutoPlace(myPlacements) {
+  if (!autoPlace || autoPlaceInFlight || myDone || doneRequested) return;
+
+  const battle = currentRoom && currentRoom.battle;
+  if (!battle || battle.phase !== "placing") return;
+
+  const placed = placedSlotSet(myPlacements);
+  const slots = [0, 1, 2].filter((i) => myUnits[i] && !placed.has(i));
+  if (!slots.length) return;
+
+  // 내 진영에서 아직 비어 있는 칸을 모아 섞는다.
+  const free = [];
+  for (let r = 0; r < ROWS; r++) {
+    if (r === BOUNDARY_ROW || !isMyAreaRow(r)) continue;
+    for (let c = 0; c < COLS; c++) {
+      if (!myPlacements[`${r}_${c}`]) free.push(`${r}_${c}`);
+    }
+  }
+  if (free.length < slots.length) return;
+  for (let i = free.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [free[i], free[j]] = [free[j], free[i]];
+  }
+
+  const updates = {};
+  slots.forEach((slot, i) => { updates[free[i]] = { slot, file: myUnits[slot] }; });
+
+  autoPlaceInFlight = true;
+  selectedSlot = null;
+  playSelect();
+  update(ref(db, `rooms/${roomId}/battle/${battleField()}`), updates)
+    .catch((err) => console.error("자동 배치 실패:", err))
+    .finally(() => { autoPlaceInFlight = false; });
 }
 
 // ---------- 맵 타일 렌더링 ----------
@@ -615,6 +691,7 @@ function renderBattle(room) {
   renderMapTiles(myPlacements, oppPlacements);
   renderTimer(battle);
   renderCountdown(battle);
+  maybeAutoPlace(myPlacements);
   maybeAutoComplete(myPlacements);
 }
 

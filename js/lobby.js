@@ -96,8 +96,9 @@ function avatarUrl(file) {
   return AVATAR_PATH + file;
 }
 
+// 대기실에 들어가면 001, 002, 003이 이미 장착돼 있다 (바로 준비를 누를 수 있게).
 function defaultUnits() {
-  return [DEFAULT_UNIT, null, null];
+  return AVATARS.slice(0, 3);
 }
 
 function avatarCardMarkup(file) {
