@@ -1043,17 +1043,6 @@ body.battle-page {
   background: rgba(0,0,0,.5);
   z-index: 300;
 }
-.countdown-number {
-  font-size: 160px;
-  font-weight: 900;
-  color: #fff;
-  text-shadow:
-    -3px -3px 0 #000, 3px -3px 0 #000,
-    -3px  3px 0 #000, 3px  3px 0 #000,
-    0 3px 0 #000, 0 6px 0 #000, 0 9px 0 #000,
-    0 16px 16px rgba(0,0,0,.4);
-}
-
 /* ---------- 최대화 상태에서 함께 커져야 하는 나머지 UI ---------- */
 /* (.avatar-frame이 .avatar-frame-lg보다 먼저 와야 큰 프로필이 덮이지 않는다) */
 @media (min-width: 1300px) {
@@ -1101,10 +1090,9 @@ body.battle-page {
   /* 토스트 알림 */
   .toast { bottom: 30px; padding: 16px 26px; font-size: 19px; border-width: 4px; }
 
-  /* 로딩 화면 / 카운트다운 */
+  /* 로딩 화면 */
   .loading-spinner { width: 76px; height: 76px; border-width: 8px; }
   .loading-text { font-size: 24px; }
-  .countdown-number { font-size: 220px; }
 }
 
 /* ---------- 대기실 채팅 ---------- */

@@ -55,8 +55,6 @@ const battleMain = document.getElementById("battle-main");
 const sidebarEl = document.getElementById("unit-sidebar");
 const mapEl = document.getElementById("battle-map");
 const timerEl = document.getElementById("placement-timer");
-const countdownOverlay = document.getElementById("countdown-overlay");
-const countdownNumberEl = document.getElementById("countdown-number");
 const matchEndOverlay = document.getElementById("match-end-overlay");
 const toastEl = document.getElementById("toast");
 
@@ -399,18 +397,24 @@ function maybeAutoComplete(myPlacements) {
   if (allPlaced) markDone();
 }
 
-// ---------- 카운트다운 (3,2,1,0에서 멈춤 - 이후 게임 로직은 아직 없음) ----------
+// ---------- 카운트다운 (3,2,1 - 화면 한가운데 알림으로 표시) ----------
+// 어느 카운트다운의 몇 초를 이미 보여줬는지 기억해둔다.
+// 방 데이터가 도착할 때마다 이 함수가 다시 불리기 때문에, 이게 없으면
+// 같은 숫자의 애니메이션이 계속 다시 재생되어 덜덜 떨리는 것처럼 보인다.
+let countdownShownAt = null;
+let countdownShownNumber = 0;
+
 function renderCountdown(battle) {
   clearInterval(countdownInterval);
 
   if (battle.phase !== "countdown" || !battle.countdownStartedAt) {
-    countdownOverlay.classList.add("hidden");
+    countdownShownAt = null;
+    countdownShownNumber = 0;
     return;
   }
-  countdownOverlay.classList.remove("hidden");
 
+  // 서버 시각을 알아야 남은 시간을 계산할 수 있다 (PC 시계가 어긋나 있어도 정확하도록).
   if (!serverTimeReady()) {
-    countdownNumberEl.textContent = "3";
     whenServerTime(() => {
       if (currentRoom && currentRoom.battle) renderCountdown(currentRoom.battle);
     });
@@ -420,7 +424,14 @@ function renderCountdown(battle) {
   const tick = () => {
     const remain = Math.max(0, 3000 - (serverNow() - battle.countdownStartedAt));
     const n = Math.ceil(remain / 1000);
-    countdownNumberEl.textContent = String(n);
+
+    // 초가 바뀔 때마다 같은 자리에서 문구만 갈아끼우고 등장 애니메이션을 다시 재생한다.
+    if (n > 0 && (countdownShownAt !== battle.countdownStartedAt || countdownShownNumber !== n)) {
+      countdownShownAt = battle.countdownStartedAt;
+      countdownShownNumber = n;
+      pushNotice(`잠시 후 매치가 시작됩니다. ${n}s`, { group: "countdown", duration: 1000 });
+    }
+
     if (remain <= 0) {
       clearInterval(countdownInterval);
       // 아직 실제 전투 로직이 없으므로 카운트다운이 끝나면 바로 매치 종료로 넘어간다.
@@ -471,7 +482,6 @@ function handleFinish(battle) {
 
   clearInterval(timerInterval);
   clearInterval(countdownInterval);
-  countdownOverlay.classList.add("hidden");
   matchEndOverlay.classList.remove("hidden");
 
   setTimeout(() => {
