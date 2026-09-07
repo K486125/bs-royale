@@ -6,6 +6,10 @@
 //   group    같은 그룹의 알림은 하나만 남는다. 새로 부르면 그 자리에서 문구를 바꾸고
 //            등장 애니메이션을 처음부터 다시 재생한다 (버튼 연타 대응).
 //   duration 표시 시간 (ms)
+//
+// 알림이 여러 개 떠 있을 때, 하나가 사라지면서 자리가 갑자기 없어지면 나머지가 뚝 튄다.
+// 그래서 나타날 때는 자리가 0에서 열리고, 사라질 때는 다시 0으로 접히게 해서
+// 위아래 알림이 부드럽게 따라 움직이도록 한다.
 // 반환값: 알림이 사라지는 애니메이션까지 끝나는 시점에 resolve되는 Promise.
 //        (알림이 완전히 사라진 뒤에 로딩 화면으로 넘어가고 싶을 때 쓴다)
 const STACK_ID = "notice-stack";
@@ -36,9 +40,7 @@ export function pushNotice(text, options = {}) {
   el.textContent = text;
   if (group) el.dataset.group = group;
   stack.appendChild(el);
-
-  // 나타나는 애니메이션은 다음 프레임에 클래스를 붙여야 동작한다.
-  requestAnimationFrame(() => el.classList.add("show"));
+  appear(el);
 
   // 너무 많이 쌓이면 오래된 것부터 치운다.
   // 사라지는 중인 것은 아직 화면에 남아 있어도 이미 정리된 것으로 친다
@@ -51,6 +53,43 @@ export function pushNotice(text, options = {}) {
 }
 
 // 표시 시간 + 사라지는 애니메이션 시간 (+ 여유를 조금 둬서 확실히 사라진 뒤에 resolve)
+// 붙자마자 높이를 0으로 접어뒀다가 원래 높이로 펴면서 등장시킨다.
+// (붙인 직후 같은 작업 안에서 접기 때문에 큰 상태가 화면에 비치지 않는다)
+function appear(el) {
+  const height = el.offsetHeight;
+  el.style.height = "0px";
+  el.style.marginTop = "0px";
+  void el.offsetWidth; // 시작 상태를 확정시킨다 (다음 프레임을 기다리지 않아도 된다)
+
+  el.style.height = `${height}px`;
+  el.style.marginTop = ""; // CSS에 정해둔 간격으로 되돌아가며 자리가 열린다
+  el.classList.add("show");
+
+  // 다 펴진 뒤에는 높이 제한을 풀어준다.
+  // (문구가 바뀌어 길어져도 잘리지 않고, 글자 그림자도 상자 밖으로 온전히 나온다)
+  setTimeout(() => {
+    if (el.dataset.removing) return;
+    el.style.height = "";
+    el.style.overflow = "visible";
+  }, EXIT_MS + 60);
+}
+
+// 사라질 때는 반대로 자리를 도로 접는다.
+function collapse(el) {
+  el.style.overflow = "hidden"; // 접히는 동안에는 글자가 상자 밖으로 삐져나오지 않게
+  el.style.height = `${el.offsetHeight}px`;
+  void el.offsetWidth;
+  el.style.height = "0px";
+  el.style.marginTop = "0px";
+}
+
+// 화면에 떠 있는 알림을 모두 걷어낸다 (매치가 끝나 카운트다운 문구가 필요 없어질 때 등).
+export function clearNotices() {
+  const stack = document.getElementById(STACK_ID);
+  if (!stack) return;
+  alive(stack).forEach(remove);
+}
+
 function done(duration) {
   return new Promise((resolve) => setTimeout(resolve, duration + EXIT_MS + 40));
 }
@@ -78,6 +117,7 @@ function remove(el) {
   if (!el || el.dataset.removing) return;
   el.dataset.removing = "1";
   clearTimeout(Number(el.dataset.timer));
+  collapse(el);
   // show를 떼면 나타날 때의 움직임이 그대로 거꾸로 재생된다 (아래로 내려가며 사라짐).
   el.classList.remove("show");
   setTimeout(() => el.remove(), EXIT_MS);

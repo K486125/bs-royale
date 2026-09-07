@@ -1324,7 +1324,6 @@ body.battle-page {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 10px;
   z-index: 900; /* 무엇보다 위에 */
   pointer-events: none; /* 글자만 떠 있고 클릭은 그대로 통과시킨다 */
 }
@@ -1342,8 +1341,17 @@ body.battle-page {
     0 8px 12px rgba(0,0,0,.75);
   opacity: 0;
   transform: translateY(26px) scale(.96);
-  /* 아래에서 위로 슉 올라오며 나타나고, 사라질 때는 그대로 거꾸로 */
-  transition: opacity .28s ease, transform .32s cubic-bezier(.16,.9,.3,1);
+  /* 알림 사이 간격. gap 대신 margin을 쓰는 이유는, 사라질 때 이 간격까지
+     같이 접혀야 위아래 알림이 튀지 않고 부드럽게 따라 움직이기 때문이다. */
+  margin-top: 10px;
+  overflow: hidden;
+  /* 아래에서 위로 슉 올라오며 나타나고, 사라질 때는 그대로 거꾸로.
+     height/margin은 자리가 열리고 접히는 움직임이다. */
+  transition:
+    opacity .28s ease,
+    transform .32s cubic-bezier(.16,.9,.3,1),
+    height .3s cubic-bezier(.16,.9,.3,1),
+    margin-top .3s cubic-bezier(.16,.9,.3,1);
 }
 .notice-bar.show {
   opacity: 1;

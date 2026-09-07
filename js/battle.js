@@ -5,7 +5,7 @@ import {
   newChatKey, watchChatData, isLastLeaveNotice, noticeEntry, trimRootUpdates
 } from "./chat.js";
 import { initServerTime, serverNow, serverTimeReady, whenServerTime } from "./server-time.js";
-import { pushNotice } from "./notice.js";
+import { pushNotice, clearNotices } from "./notice.js";
 import { initializeApp } from "https://www.gstatic.com/firebasejs/12.18.0/firebase-app.js";
 import {
   getAuth, signInAnonymously, onAuthStateChanged,
@@ -23,6 +23,9 @@ const PLACING_MS = 60000;
 const LOADING_MIN_MS = 1400; // 로딩 화면 최소 노출 시간 (버벅거림 방지용 체감 대기)
 const MATCH_END_MS = 1800; // "매치 종료" 문구를 보여주는 시간
 const LEAVE_NOTICE_MS = 1100; // 상대 퇴장 알림을 보여주는 시간 (이후 로딩 화면)
+// 카운트 하나가 화면에 남아 있는 시간. 1초보다 길어서 다음 숫자가 아래에 생길 때
+// 앞의 숫자가 아직 남아 있고, 그 뒤에 천천히 접히며 사라진다.
+const COUNTDOWN_NOTICE_MS = 1600;
 
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
@@ -429,7 +432,9 @@ function renderCountdown(battle) {
     if (n > 0 && (countdownShownAt !== battle.countdownStartedAt || countdownShownNumber !== n)) {
       countdownShownAt = battle.countdownStartedAt;
       countdownShownNumber = n;
-      pushNotice(`잠시 후 매치가 시작됩니다. ${n}s`, { group: "countdown", duration: 1000 });
+      // 그룹으로 묶지 않는다. 초마다 새 알림이 아래에 하나씩 더 생기고,
+      // 앞의 숫자는 잠시 더 남아 있다가 자연스럽게 접히며 사라진다.
+      pushNotice(`잠시 후 매치가 시작됩니다. ${n}s`, { duration: COUNTDOWN_NOTICE_MS });
     }
 
     if (remain <= 0) {
@@ -482,6 +487,7 @@ function handleFinish(battle) {
 
   clearInterval(timerInterval);
   clearInterval(countdownInterval);
+  clearNotices(); // 남아 있던 카운트다운 문구가 "매치 종료" 위에 겹치지 않도록
   matchEndOverlay.classList.remove("hidden");
 
   setTimeout(() => {
