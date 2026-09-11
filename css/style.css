@@ -934,6 +934,78 @@ body.battle-page {
   .unit-sidebar { gap: 24px; padding: 24px; width: calc(var(--unit-card) + 48px); }
 }
 
+/* 진행 중에는 행동 버튼이 더 붙기 때문에, 유닛 카드를 줄이고
+   배치 때만 쓰는 자동 배치 토글은 감춰서 사이드바가 넘치지 않게 한다 */
+.unit-sidebar.playing { gap: 12px; }
+.unit-sidebar.playing .unit-slots { gap: 10px; }
+.unit-sidebar.playing .unit-slot-card { width: calc(var(--unit-card) * .74); }
+.unit-sidebar.playing .auto-place { display: none; }
+
+/* 진행 중 위쪽 띠: 몇 턴째인지, 누구 차례인지, 남은 이동과 시간 */
+.turn-bar {
+  padding: 10px 20px;
+  border-radius: 12px;
+  background: rgba(16, 21, 48, .85);
+  border: 3px solid #10142c;
+  color: #dfe4ff;
+  font-size: 17px;
+  font-weight: 800;
+  letter-spacing: .3px;
+  text-shadow: 0 2px 0 rgba(0,0,0,.6);
+  box-shadow: 0 5px 0 #10142c, 0 10px 18px rgba(0,0,0,.4);
+}
+/* 내 차례일 때만 눈에 띄게 */
+.turn-bar.mine {
+  background: rgba(38, 30, 6, .9);
+  border-color: #8a6a00;
+  color: #ffdf7d;
+  box-shadow: 0 5px 0 #8a6a00, 0 10px 18px rgba(0,0,0,.45);
+}
+
+/* 고른 유닛으로 할 행동 고르기 */
+.turn-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+}
+.action-btn {
+  padding: 10px 0;
+  border-radius: 10px;
+  border: 3px solid #1d2246;
+  background: #3a4176;
+  color: #e8ecff;
+  font-family: inherit;
+  font-size: 15px;
+  font-weight: 900;
+  cursor: pointer;
+  box-shadow: 0 4px 0 #1d2246;
+  transition: transform .06s ease, box-shadow .06s ease, filter .15s ease;
+}
+.action-btn:hover:not(:disabled) { filter: brightness(1.1); }
+.action-btn:active:not(:disabled) {
+  transform: translateY(4px);
+  box-shadow: 0 0 0 #1d2246;
+}
+.action-btn:disabled {
+  opacity: .45;
+  cursor: default;
+}
+/* 지금 고른 행동 */
+.action-btn.on {
+  background: var(--accent);
+  border-color: var(--accent-edge);
+  color: #241a00;
+  box-shadow: 0 4px 0 var(--accent-edge);
+}
+
+/* 조작하려고 고른 유닛이 서 있는 칸 */
+.tile.unit-selected {
+  outline: 4px solid #ffd85c;
+  outline-offset: -4px;
+  box-shadow: inset 0 0 18px rgba(255, 216, 92, .5);
+}
+
 /* 유닛 카드들을 한 덩어리로 묶어, 아래의 자동 배치 토글과 간격이 따로 잡히게 한다 */
 .unit-slots {
   display: flex;

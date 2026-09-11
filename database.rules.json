@@ -81,11 +81,17 @@
         },
 
         "battle": {
-          "phase": { ".validate": "newData.isString() && newData.val().matches(/^(loading|placing|countdown|finished)$/)" },
+          "phase": { ".validate": "newData.isString() && newData.val().matches(/^(loading|placing|countdown|playing|finished)$/)" },
           "createdAt": { ".validate": "newData.isNumber()" },
           "placingStartedAt": { ".validate": "newData.isNumber()" },
           "countdownStartedAt": { ".validate": "newData.isNumber()" },
           "finishedAt": { ".validate": "newData.isNumber()" },
+
+          "turn": { ".validate": "newData.isNumber() && newData.val() >= 1 && newData.val() <= 10" },
+          "active": { ".validate": "newData.isString() && newData.val().matches(/^(host|guest)$/)" },
+          "movesLeft": { ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 3" },
+          "actedAt": { ".validate": "newData.isNumber()" },
+          "endReason": { ".validate": "newData.isString() && newData.val().matches(/^(timeout|turns)$/)" },
 
           "hostDone": { ".validate": "newData.isBoolean() && root.child('rooms').child($roomId).child('hostUid').val() === auth.uid" },
           "guestDone": { ".validate": "newData.isBoolean() && root.child('rooms').child($roomId).child('guestUid').val() === auth.uid" },
@@ -93,7 +99,7 @@
           "hostPlacements": {
             ".validate": "root.child('rooms').child($roomId).child('hostUid').val() === auth.uid",
             "$tile": {
-              ".validate": "$tile.matches(/^[4-6]_[0-6]$/)",
+              ".validate": "$tile.matches(/^[0-6]_[0-6]$/) && (root.child('rooms').child($roomId).child('battle').child('phase').val() !== 'placing' || $tile.matches(/^[4-6]_[0-6]$/))",
               "slot": { ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 2" },
               "file": { ".validate": "newData.isString() && newData.val().matches(/^[A-Za-z]+_[0-9]{3}_Icon[.]png$/)" },
               "$other": { ".validate": false }
@@ -102,7 +108,7 @@
           "guestPlacements": {
             ".validate": "root.child('rooms').child($roomId).child('guestUid').val() === auth.uid",
             "$tile": {
-              ".validate": "$tile.matches(/^[0-2]_[0-6]$/)",
+              ".validate": "$tile.matches(/^[0-6]_[0-6]$/) && (root.child('rooms').child($roomId).child('battle').child('phase').val() !== 'placing' || $tile.matches(/^[0-2]_[0-6]$/))",
               "slot": { ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 2" },
               "file": { ".validate": "newData.isString() && newData.val().matches(/^[A-Za-z]+_[0-9]{3}_Icon[.]png$/)" },
               "$other": { ".validate": false }

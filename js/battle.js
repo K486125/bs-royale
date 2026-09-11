@@ -20,6 +20,9 @@ const ROWS = 7;
 const COLS = 7;
 const BOUNDARY_ROW = 3; // 세로 7칸 중 가운데 한 줄 = 배치 불가 경계선
 const PLACING_MS = 60000;
+const MAX_TURNS = 10;          // 이만큼 돌면 매치 종료
+const MOVES_PER_TURN = 3;      // 한 차례에 쓸 수 있는 이동 횟수
+const TURN_IDLE_MS = 20000;    // 이 시간 동안 아무 것도 안 하면 매치가 끊긴다
 const LOADING_MIN_MS = 1400; // 로딩 화면 최소 노출 시간 (버벅거림 방지용 체감 대기)
 const MATCH_END_MS = 1800; // "매치 종료" 문구를 보여주는 시간
 const LEAVE_NOTICE_MS = 1100; // 상대 퇴장 알림을 보여주는 시간 (이후 로딩 화면)
@@ -48,17 +51,26 @@ const loadingStartedAt = Date.now();
 
 let timerInterval = null;
 let countdownInterval = null;
+let turnInterval = null;
+let selectedTile = null;   // 조작하려고 고른 유닛이 서 있는 칸 ("행_열")
+let actionMode = null;     // 그 유닛으로 무엇을 할지: "move" | "attack"
 let matchFinished = false; // 정상 종료로 대기실에 돌아가는 중인지 (상대 이탈과 구분)
 
 const loadingOverlay = document.getElementById("loading-overlay");
 const battleMain = document.getElementById("battle-main");
 const sidebarEl = document.getElementById("unit-slots");
+const sidebarBoxEl = document.getElementById("unit-sidebar");
 const countdownOverlay = document.getElementById("countdown-overlay");
 const countdownNumberEl = document.getElementById("countdown-number");
 const autoPlaceBtn = document.getElementById("auto-place");
 const mapEl = document.getElementById("battle-map");
 const timerEl = document.getElementById("placement-timer");
 const matchEndOverlay = document.getElementById("match-end-overlay");
+const matchEndTextEl = matchEndOverlay.querySelector(".match-end-text");
+const turnBarEl = document.getElementById("turn-bar");
+const turnActionsEl = document.getElementById("turn-actions");
+const actMoveBtn = document.getElementById("act-move");
+const actAttackBtn = document.getElementById("act-attack");
 const toastEl = document.getElementById("toast");
 
 function showToast(msg) {
@@ -344,6 +356,7 @@ function renderMapTiles(myPlacements, oppPlacements) {
     const placement = myPlacements[key] || oppPlacements[key];
 
     tile.classList.toggle("occupied", !!placement);
+    tile.classList.toggle("unit-selected", !!selectedTile && key === selectedTile);
     tile.innerHTML = placement
       ? `<div class="tile-unit-frame ${unitFrameClass(placement.file)}"><img src="${AVATAR_PATH}${placement.file}" alt=""></div>`
       : "";
@@ -352,7 +365,15 @@ function renderMapTiles(myPlacements, oppPlacements) {
 
 function onTileClick(e) {
   const tile = e.target.closest(".tile");
-  if (!tile || myDone || selectedSlot === null) return;
+  if (!tile) return;
+
+  const battle = currentRoom && currentRoom.battle;
+  if (battle && battle.phase === "playing") {
+    selectUnitAt(`${tile.dataset.row}_${tile.dataset.col}`);
+    return;
+  }
+
+  if (myDone || selectedSlot === null) return;
 
   const r = Number(tile.dataset.row);
   const c = Number(tile.dataset.col);
@@ -499,15 +520,14 @@ function renderCountdown(battle) {
     countdownNumberEl.textContent = String(n);
     if (remain <= 0) {
       clearInterval(countdownInterval);
-      // 아직 실제 전투 로직이 없으므로 카운트다운이 끝나면 바로 매치 종료로 넘어간다.
-      // 방장이 대표로 기록하되, 어떤 이유로 기록되지 않으면 상대도 카운트다운 0에서 멈추므로
-      // 몇 초 뒤에는 남은 쪽이 대신 기록한다.
+      // 방장이 대표로 첫 턴을 연다. 어떤 이유로 기록되지 않으면 상대도 카운트다운 0에서
+      // 멈춰 있게 되므로, 몇 초 뒤에는 남은 쪽이 대신 연다.
       if (isHost) {
-        finishMatch();
+        startPlaying();
       } else {
         setTimeout(() => {
           const b = currentRoom && currentRoom.battle;
-          if (b && b.phase === "countdown") finishMatch();
+          if (b && b.phase === "countdown") startPlaying();
         }, 4000);
       }
     }
@@ -516,29 +536,274 @@ function renderCountdown(battle) {
   countdownInterval = setInterval(tick, 100);
 }
 
-// ---------- 매치 종료 -> 대기실 복귀 ----------
-let finishRequested = false;
-async function finishMatch() {
-  if (finishRequested) return;
-  finishRequested = true;
+// ---------- 턴제 진행 ----------
+// 한 차례에 이동 3번. 다 쓰면 상대 차례가 되고, 둘 다 마치면 한 턴이 끝난다.
+// 값은 모두 방 데이터에 들어 있어서 양쪽 화면이 같은 상태를 본다.
+const myRole = () => (isHost ? "host" : "guest");
 
-  for (let i = 0; i < 3; i++) {
-    try {
-      await update(ref(db, `rooms/${roomId}/battle`), {
-        phase: "finished",
-        finishedAt: serverTimestamp()
-      });
-      return;
-    } catch (err) {
-      console.error(`매치 종료 기록 ${i + 1}번째 실패:`, err);
-      await wait(1000);
-    }
-  }
-  // 기록이 안 되면 상대 화면은 카운트다운 0에서 멈춘다. 최소한 이 사람은 내보낸다.
-  // (그 사이 상대가 기록해서 이미 종료 절차가 시작됐다면 그대로 둔다)
-  if (!finishSequenceStarted) handleFinish({ phase: "finished" });
+function isMyTurn(battle) {
+  return !!battle && battle.phase === "playing" && battle.active === myRole();
 }
 
+// 카운트다운이 끝나면 방장이 대표로 첫 턴을 연다.
+let playStartRequested = false;
+async function startPlaying() {
+  if (playStartRequested) return;
+  playStartRequested = true;
+  try {
+    await update(ref(db, `rooms/${roomId}/battle`), {
+      phase: "playing",
+      turn: 1,
+      active: "host", // 방장이 먼저 움직인다
+      movesLeft: MOVES_PER_TURN,
+      actedAt: serverTimestamp()
+    });
+  } catch (err) {
+    console.error("턴 시작 실패:", err);
+    playStartRequested = false;
+  }
+}
+
+function tileKey(r, c) { return `${r}_${c}`; }
+function parseTile(key) {
+  const [r, c] = key.split("_").map(Number);
+  return { r, c };
+}
+
+// 누군가 서 있는 칸인지 (내 유닛이든 상대 유닛이든 막힌다)
+function occupant(battle, key) {
+  const mine = battle[battleField()] || {};
+  const opp = battle[isHost ? "guestPlacements" : "hostPlacements"] || {};
+  return mine[key] || opp[key] || null;
+}
+
+const DIRECTIONS = {
+  ArrowUp: [-1, 0], ArrowDown: [1, 0], ArrowLeft: [0, -1], ArrowRight: [0, 1]
+};
+
+// 그 방향으로 한 칸 갈 수 있는지 본다. 판 밖이거나 누가 서 있으면 못 간다.
+// 가운데 경계선은 배치 때만 막히고, 이동할 때는 넘어갈 수 있다.
+function stepTarget(battle, fromKey, dir) {
+  const [dr, dc] = dir;
+  const { r, c } = parseTile(fromKey);
+  const nr = r + dr;
+  const nc = c + dc;
+  if (nr < 0 || nr >= ROWS || nc < 0 || nc >= COLS) return null;
+  const key = tileKey(nr, nc);
+  if (occupant(battle, key)) return null;
+  return key;
+}
+
+function hasAnyMove(battle) {
+  const mine = battle[battleField()] || {};
+  return Object.keys(mine).some((key) =>
+    Object.values(DIRECTIONS).some((d) => stepTarget(battle, key, d))
+  );
+}
+
+// 한 칸 이동. 남은 횟수가 0이 되면 차례가 넘어간다.
+let moveInFlight = false;
+async function moveUnit(fromKey, dir) {
+  const battle = currentRoom && currentRoom.battle;
+  if (!battle || moveInFlight || !isMyTurn(battle)) return;
+
+  const mine = battle[battleField()] || {};
+  const unit = mine[fromKey];
+  if (!unit) return;
+
+  const toKey = stepTarget(battle, fromKey, dir);
+  if (!toKey) return; // 판 밖이거나 앞이 막혔다
+
+  const left = Math.max(0, (battle.movesLeft || 0) - 1);
+  const field = battleField();
+  const updates = {
+    [`${field}/${fromKey}`]: null,
+    [`${field}/${toKey}`]: { slot: unit.slot, file: unit.file },
+    movesLeft: left,
+    actedAt: serverTimestamp()
+  };
+  Object.assign(updates, turnHandoverUpdates(battle, left));
+
+  moveInFlight = true;
+  selectedTile = toKey; // 움직인 유닛을 계속 잡고 있는다 (연속 이동이 편하도록)
+  playSelect();
+  try {
+    await update(ref(db, `rooms/${roomId}/battle`), updates);
+  } catch (err) {
+    console.error("이동 실패:", err);
+    pushNotice("이동하지 못했습니다.");
+  } finally {
+    moveInFlight = false;
+  }
+}
+
+// 남은 이동이 0이면 다음 차례로 넘긴다. 게스트까지 마치면 한 턴이 끝난다.
+function turnHandoverUpdates(battle, movesLeft) {
+  if (movesLeft > 0) return {};
+
+  if (battle.active === "host") {
+    return { active: "guest", movesLeft: MOVES_PER_TURN };
+  }
+
+  const nextTurn = (battle.turn || 1) + 1;
+  if (nextTurn > MAX_TURNS) {
+    return { phase: "finished", endReason: "turns", finishedAt: serverTimestamp() };
+  }
+  return { turn: nextTurn, active: "host", movesLeft: MOVES_PER_TURN };
+}
+
+// 어느 방향으로도 못 움직이는 상황이면(둘러싸임) 차례가 영영 안 넘어가므로 넘겨준다.
+let stuckPassInFlight = false;
+async function passIfStuck(battle) {
+  if (stuckPassInFlight || !isMyTurn(battle) || hasAnyMove(battle)) return;
+  stuckPassInFlight = true;
+  try {
+    await update(ref(db, `rooms/${roomId}/battle`), {
+      movesLeft: 0,
+      actedAt: serverTimestamp(),
+      ...turnHandoverUpdates(battle, 0)
+    });
+    pushNotice("움직일 수 있는 칸이 없어 차례를 넘깁니다.");
+  } catch (err) {
+    console.error("차례 넘기기 실패:", err);
+  } finally {
+    stuckPassInFlight = false;
+  }
+}
+
+// 방치 감지. 차례인 사람이 20초 동안 아무 것도 하지 않으면 매치를 끝낸다.
+// 차례가 아닌 쪽도 함께 감시해서, 상대 앱이 멈춰 있어도 둘 다 대기실로 돌아갈 수 있게 한다.
+let idleEndRequested = false;
+async function endByIdle() {
+  if (idleEndRequested) return;
+  idleEndRequested = true;
+  try {
+    await update(ref(db, `rooms/${roomId}/battle`), {
+      phase: "finished",
+      endReason: "timeout",
+      finishedAt: serverTimestamp()
+    });
+  } catch (err) {
+    console.error("시간 초과 처리 실패:", err);
+    idleEndRequested = false;
+  }
+}
+
+// 조작할 유닛을 고른다. 고르기만 해서는 아무 일도 일어나지 않고,
+// 이동인지 공격인지 한 번 더 선택해야 한다.
+function selectUnitAt(key) {
+  const battle = currentRoom && currentRoom.battle;
+  if (!battle || battle.phase !== "playing") return;
+  if (!isMyTurn(battle)) {
+    pushNotice("상대 차례입니다.", { group: "turn", duration: 1400 });
+    return;
+  }
+  const mine = battle[battleField()] || {};
+  if (!mine[key]) return;
+
+  if (selectedTile === key) {
+    selectedTile = null; // 같은 유닛을 다시 누르면 선택 해제
+    actionMode = null;
+  } else {
+    selectedTile = key;
+    actionMode = null;
+  }
+  renderBattle(currentRoom);
+}
+
+actMoveBtn.addEventListener("click", () => {
+  if (!selectedTile) return;
+  actionMode = "move";
+  renderBattle(currentRoom);
+});
+
+// 방향키로 한 칸씩 움직인다.
+window.addEventListener("keydown", (e) => {
+  const dir = DIRECTIONS[e.key];
+  if (!dir) return;
+
+  const battle = currentRoom && currentRoom.battle;
+  if (!battle || battle.phase !== "playing") return;
+  e.preventDefault(); // 방향키로 화면이 스크롤되지 않도록
+
+  if (!isMyTurn(battle)) {
+    pushNotice("상대 차례입니다.", { group: "turn", duration: 1400 });
+    return;
+  }
+  if (!selectedTile) {
+    pushNotice("움직일 유닛을 먼저 고르세요.", { group: "turn", duration: 1600 });
+    return;
+  }
+  if (actionMode !== "move") {
+    pushNotice("이동을 먼저 선택하세요.", { group: "turn", duration: 1600 });
+    return;
+  }
+  moveUnit(selectedTile, dir);
+});
+
+// ---------- 진행 중 화면 ----------
+function renderTurnSidebar(myPlacements) {
+  const battle = currentRoom.battle;
+  sidebarEl.innerHTML = "";
+
+  Object.entries(myPlacements)
+    .sort((a, b) => (a[1].slot || 0) - (b[1].slot || 0))
+    .forEach(([key, unit]) => {
+      const card = document.createElement("div");
+      card.className = "unit-slot-card" + (selectedTile === key ? " selected" : "");
+      card.innerHTML = `
+        <div class="unit-tile ${unitFrameClass(unit.file)}">
+          <img src="${AVATAR_PATH}${unit.file}" alt="">
+        </div>
+      `;
+      card.addEventListener("click", () => selectUnitAt(key));
+      sidebarEl.appendChild(card);
+    });
+
+  const canAct = !!selectedTile && isMyTurn(battle);
+  turnActionsEl.classList.toggle("hidden", !canAct);
+  actMoveBtn.classList.toggle("on", actionMode === "move");
+  // 공격은 아직 만들지 않았다.
+  actAttackBtn.disabled = true;
+}
+
+// 위쪽 띠: 몇 턴째인지, 누구 차례인지, 이동이 몇 번 남았는지, 방치까지 몇 초 남았는지.
+function renderTurnBar(battle) {
+  clearInterval(turnInterval);
+
+  if (!battle || battle.phase !== "playing") {
+    turnBarEl.classList.add("hidden");
+    return;
+  }
+  turnBarEl.classList.remove("hidden");
+
+  const head = `턴 ${battle.turn || 1}/${MAX_TURNS} · ${isMyTurn(battle) ? "내 차례" : "상대 차례"}`;
+  turnBarEl.classList.toggle("mine", isMyTurn(battle));
+
+  // 서버 시각을 모르거나 아직 첫 기록이 없으면 남은 시간을 셈하지 않는다
+  // (시계가 어긋난 PC에서 시작하자마자 시간 초과가 되는 것을 막는다).
+  if (!serverTimeReady() || !battle.actedAt) {
+    turnBarEl.textContent = `${head} · 이동 ${battle.movesLeft ?? MOVES_PER_TURN}회 남음`;
+    whenServerTime(() => {
+      if (currentRoom && currentRoom.battle) renderTurnBar(currentRoom.battle);
+    });
+    return;
+  }
+
+  const tick = () => {
+    const left = Math.max(0, TURN_IDLE_MS - (serverNow() - battle.actedAt));
+    const sec = Math.ceil(left / 1000);
+    turnBarEl.textContent = `${head} · 이동 ${battle.movesLeft ?? 0}회 남음 · ${sec}s`;
+    if (left <= 0) {
+      clearInterval(turnInterval);
+      endByIdle();
+    }
+  };
+  tick();
+  turnInterval = setInterval(tick, 200);
+}
+
+// ---------- 매치 종료 -> 대기실 복귀 ----------
 let finishSequenceStarted = false;
 function handleFinish(battle) {
   if (battle.phase !== "finished" || finishSequenceStarted) return;
@@ -547,7 +812,16 @@ function handleFinish(battle) {
 
   clearInterval(timerInterval);
   clearInterval(countdownInterval);
+  clearInterval(turnInterval);
   countdownOverlay.classList.add("hidden");
+  turnBarEl.classList.add("hidden");
+
+  // 방치로 끊긴 경우에는 왜 끝났는지 알려준다.
+  const timedOut = battle.endReason === "timeout";
+  matchEndTextEl.textContent = timedOut ? "시간 초과" : "매치 종료";
+  if (timedOut) {
+    pushNotice("20초 동안 아무 행동이 없어 매치를 종료합니다.", { duration: MATCH_END_MS });
+  }
   matchEndOverlay.classList.remove("hidden");
 
   setTimeout(() => {
@@ -671,12 +945,29 @@ function renderBattle(room) {
   const oppPlacements = battle[isHost ? "guestPlacements" : "hostPlacements"] || {};
 
   playOpponentPlacementSfx(oppPlacements);
-  renderSidebar(myPlacements);
+
+  sidebarBoxEl.classList.toggle("playing", battle.phase === "playing");
+
+  if (battle.phase === "playing") {
+    // 내 차례가 아니거나, 잡고 있던 유닛이 그 칸에 없으면(이동해서 칸이 바뀜) 선택을 푼다.
+    if (!isMyTurn(battle) || (selectedTile && !myPlacements[selectedTile])) {
+      selectedTile = null;
+      actionMode = null;
+    }
+    renderTurnSidebar(myPlacements);
+  } else {
+    selectedTile = null;
+    actionMode = null;
+    renderSidebar(myPlacements);
+  }
+
   renderMapTiles(myPlacements, oppPlacements);
   renderTimer(battle);
   renderCountdown(battle);
+  renderTurnBar(battle);
   maybeAutoPlace(myPlacements);
   maybeAutoComplete(myPlacements);
+  if (battle.phase === "playing") passIfStuck(battle);
 }
 
 // ---------- 접속 상태 (대기실과 동일한 규칙) ----------
