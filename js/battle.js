@@ -580,9 +580,19 @@ function occupant(battle, key) {
   return mine[key] || opp[key] || null;
 }
 
+// 판 좌표 기준 방향 (행이 커질수록 아래)
 const DIRECTIONS = {
   ArrowUp: [-1, 0], ArrowDown: [1, 0], ArrowLeft: [0, -1], ArrowRight: [0, 1]
 };
+
+// 게스트 화면은 자기 진영이 늘 아래쪽에 오도록 세로로 뒤집어 그린다(buildMap 참고).
+// 그래서 게스트가 위를 누르면 판 좌표로는 행이 커지는 쪽으로 가야 화면에서 위로 올라간다.
+// 좌우는 뒤집지 않으므로 그대로 둔다.
+function screenDirection(key) {
+  const dir = DIRECTIONS[key];
+  if (!dir) return null;
+  return isHost ? dir : [-dir[0], dir[1]];
+}
 
 // 그 방향으로 한 칸 갈 수 있는지 본다. 판 밖이거나 누가 서 있으면 못 간다.
 // 가운데 경계선은 배치 때만 막히고, 이동할 때는 넘어갈 수 있다.
@@ -722,7 +732,7 @@ actMoveBtn.addEventListener("click", () => {
 
 // 방향키로 한 칸씩 움직인다.
 window.addEventListener("keydown", (e) => {
-  const dir = DIRECTIONS[e.key];
+  const dir = screenDirection(e.key);
   if (!dir) return;
 
   const battle = currentRoom && currentRoom.battle;
