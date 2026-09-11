@@ -93,6 +93,13 @@
           "actedAt": { ".validate": "newData.isNumber()" },
           "endReason": { ".validate": "newData.isString() && newData.val().matches(/^(timeout|turns)$/)" },
 
+          "hostHp": {
+            "$slot": { ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 1000 && $slot.matches(/^[0-2]$/)" }
+          },
+          "guestHp": {
+            "$slot": { ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 1000 && $slot.matches(/^[0-2]$/)" }
+          },
+
           "hostSelected": { ".validate": "newData.isString() && newData.val().matches(/^[0-6]_[0-6]$/) && root.child('rooms').child($roomId).child('hostUid').val() === auth.uid" },
           "guestSelected": { ".validate": "newData.isString() && newData.val().matches(/^[0-6]_[0-6]$/) && root.child('rooms').child($roomId).child('guestUid').val() === auth.uid" },
 

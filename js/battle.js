@@ -25,6 +25,7 @@ const MOVES_PER_TURN = 3;      // 한 차례에 쓸 수 있는 이동 횟수
 // 한 칸 움직인 뒤 이만큼은 다음 이동을 받지 않는다.
 // 연속으로 밀어 넣으면 서버에 반영되기 전 상태로 다음 이동을 계산하게 되어 어긋날 수 있다.
 const MOVE_COOLDOWN_MS = 1000;
+const UNIT_MAX_HP = 1000;      // 임시 체력. 나중에 유닛마다 다르게 줄 수 있다
 const TURN_IDLE_MS = 20000;    // 이 시간 동안 아무 것도 안 하면 매치가 끊긴다
 // 개발 중에는 방치 감지를 꺼둔다. 상대가 이동을 마칠 때까지 그냥 기다린다.
 // 다시 켜려면 이 값만 true로 바꾸면 된다.
@@ -72,6 +73,8 @@ const sidebarBoxEl = document.getElementById("unit-sidebar");
 const countdownOverlay = document.getElementById("countdown-overlay");
 const countdownNumberEl = document.getElementById("countdown-number");
 const autoPlaceBtn = document.getElementById("auto-place");
+const enemySidebarEl = document.getElementById("enemy-sidebar");
+const enemySlotsEl = document.getElementById("enemy-slots");
 const mapEl = document.getElementById("battle-map");
 const timerEl = document.getElementById("placement-timer");
 const matchEndOverlay = document.getElementById("match-end-overlay");
@@ -628,12 +631,15 @@ async function startPlaying() {
   if (playStartRequested) return;
   playStartRequested = true;
   try {
+    const fullHp = { 0: UNIT_MAX_HP, 1: UNIT_MAX_HP, 2: UNIT_MAX_HP };
     await update(ref(db, `rooms/${roomId}/battle`), {
       phase: "playing",
       turn: 1,
       active: "host", // 방장이 먼저 움직인다
       movesLeft: MOVES_PER_TURN,
-      actedAt: serverTimestamp()
+      actedAt: serverTimestamp(),
+      hostHp: fullHp,
+      guestHp: fullHp
     });
   } catch (err) {
     console.error("턴 시작 실패:", err);
@@ -871,6 +877,32 @@ window.addEventListener("keydown", (e) => {
   moveUnit(from, dir);
 });
 
+// ---------- 체력 ----------
+function hpOf(battle, role, slot) {
+  const table = battle[role === "host" ? "hostHp" : "guestHp"] || {};
+  const value = table[slot];
+  return typeof value === "number" ? value : UNIT_MAX_HP;
+}
+
+// 남은 비율에 따라 초록 -> 노랑 -> 주황 -> 빨강.
+function hpClass(ratio) {
+  if (ratio > 0.6) return "";
+  if (ratio > 0.35) return "warn";
+  if (ratio > 0.15) return "low";
+  return "critical";
+}
+
+// 숫자는 남은 체력만 보여준다 (1000 -> 670). 최대치는 적지 않는다.
+function hpBarHtml(hp) {
+  const ratio = Math.max(0, Math.min(1, hp / UNIT_MAX_HP));
+  return `
+    <div class="hp-bar ${hpClass(ratio)}">
+      <div class="hp-fill" style="width: ${ratio * 100}%"></div>
+      <div class="hp-text">${Math.round(hp)}</div>
+    </div>
+  `;
+}
+
 // ---------- 진행 중 화면 ----------
 function renderTurnSidebar(myPlacements) {
   const battle = currentRoom.battle;
@@ -880,9 +912,10 @@ function renderTurnSidebar(myPlacements) {
     .sort((a, b) => (a[1].slot || 0) - (b[1].slot || 0))
     .forEach(([key, unit]) => {
       const card = document.createElement("div");
-      card.className = "unit-slot-card" + (unit.slot === activeSlot ? " selected" : "");
+      card.className = "unit-slot-card with-hp" + (unit.slot === activeSlot ? " selected" : "");
       card.innerHTML = `
         <span class="key-badge">${(unit.slot ?? 0) + 1}</span>
+        ${hpBarHtml(hpOf(battle, myRole(), unit.slot ?? 0))}
         <div class="unit-tile ${unitFrameClass(unit.file)}">
           <img src="${AVATAR_PATH}${unit.file}" alt="">
         </div>
@@ -896,6 +929,30 @@ function renderTurnSidebar(myPlacements) {
   actMoveBtn.classList.toggle("on", actionMode === "move");
   // 공격은 아직 만들지 않았다.
   actAttackBtn.disabled = true;
+}
+
+// 오른쪽 사이드바: 상대 유닛의 상태만 보여준다 (고를 수 없고 단축키도 없다).
+function renderEnemySidebar(battle, oppPlacements) {
+  const playing = battle.phase === "playing";
+  enemySidebarEl.classList.toggle("hidden", !playing);
+  if (!playing) return;
+
+  const oppRole = isHost ? "guest" : "host";
+  enemySlotsEl.innerHTML = "";
+
+  Object.values(oppPlacements)
+    .sort((a, b) => (a.slot || 0) - (b.slot || 0))
+    .forEach((unit) => {
+      const card = document.createElement("div");
+      card.className = "unit-slot-card";
+      card.innerHTML = `
+        ${hpBarHtml(hpOf(battle, oppRole, unit.slot ?? 0))}
+        <div class="unit-tile ${unitFrameClass(unit.file)}">
+          <img src="${AVATAR_PATH}${unit.file}" alt="">
+        </div>
+      `;
+      enemySlotsEl.appendChild(card);
+    });
 }
 
 // 위쪽 띠: 몇 턴째인지, 누구 차례인지, 이동이 몇 번 남았는지, 방치까지 몇 초 남았는지.
@@ -1101,6 +1158,7 @@ function renderBattle(room) {
     renderSidebar(myPlacements);
   }
 
+  renderEnemySidebar(battle, oppPlacements);
   renderMapTiles(myPlacements, oppPlacements);
   renderMoveHints(battle);
   renderTimer(battle);

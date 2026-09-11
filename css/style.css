@@ -934,12 +934,70 @@ body.battle-page {
   .unit-sidebar { gap: 24px; padding: 24px; width: calc(var(--unit-card) + 48px); }
 }
 
-/* 진행 중에는 행동 버튼이 더 붙기 때문에, 유닛 카드를 줄이고
+/* 진행 중에는 체력 바와 행동 버튼이 더 붙기 때문에, 유닛 카드를 줄이고
    배치 때만 쓰는 자동 배치 토글은 감춰서 사이드바가 넘치지 않게 한다 */
-.unit-sidebar.playing { gap: 12px; }
-.unit-sidebar.playing .unit-slots { gap: 10px; }
-.unit-sidebar.playing .unit-slot-card { width: calc(var(--unit-card) * .74); }
+.unit-sidebar.playing { gap: 10px; }
+.unit-sidebar.playing .unit-slots { gap: 8px; }
+.unit-sidebar.playing .unit-slot-card { width: calc(var(--unit-card) * .64); }
 .unit-sidebar.playing .auto-place { display: none; }
+
+/* 상대 유닛 상태는 오른쪽에. 단축키 토큰과 행동 버튼 없이 체력만 보여준다. */
+.unit-sidebar.enemy {
+  left: auto;
+  right: 0;
+  border: 3px solid #3a4480;
+  border-right: none;
+  box-shadow: -6px 0 18px rgba(0,0,0,.35);
+}
+.unit-sidebar.enemy .unit-slot-card { cursor: default; }
+
+/* ---------- 체력 바 ---------- */
+/* 유닛 그림 바로 위에 붙는다. 숫자는 남은 체력만 보여준다 (1000 -> 670). */
+.hp-bar {
+  position: relative;
+  width: 100%;
+  height: 19px;
+  margin-bottom: 4px;
+  border-radius: 6px;
+  border: 2px solid #0c1024;
+  background: #232a4e;
+  overflow: hidden;
+  box-shadow: inset 0 2px 3px rgba(0,0,0,.55);
+}
+.hp-fill {
+  position: absolute;
+  left: 0;
+  top: 0;
+  height: 100%;
+  border-radius: 4px 2px 2px 4px;
+  background: linear-gradient(180deg, #8cf58c 0%, #46cf55 42%, #22993a 100%);
+  transition: width .3s ease;
+}
+/* 깎인 정도에 따라 노란색 -> 주황색 -> 빨간색 */
+.hp-bar.warn .hp-fill {
+  background: linear-gradient(180deg, #ffe886 0%, #f6c81d 42%, #c59a05 100%);
+}
+.hp-bar.low .hp-fill {
+  background: linear-gradient(180deg, #ffc489 0%, #f38c22 42%, #c25f08 100%);
+}
+.hp-bar.critical .hp-fill {
+  background: linear-gradient(180deg, #ffa093 0%, #ea3b28 42%, #a71d10 100%);
+}
+.hp-text {
+  position: relative; /* 채워진 막대 위에 글자가 오도록 */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  font-size: 12px;
+  font-weight: 900;
+  color: #fff;
+  letter-spacing: .3px;
+  text-shadow:
+    -1px -1px 0 #000, 1px -1px 0 #000,
+    -1px  1px 0 #000, 1px  1px 0 #000,
+    0 2px 2px rgba(0,0,0,.6);
+}
 
 /* 진행 중 위쪽 띠: 몇 턴째인지, 누구 차례인지, 남은 이동과 시간 */
 .turn-bar {
@@ -1066,6 +1124,9 @@ body.battle-page {
   cursor: pointer;
   transition: transform .1s ease, opacity .15s ease;
 }
+
+/* 체력 바가 있는 카드에서는 토큰을 바 아래(유닛 그림 모서리)로 내려서 숫자를 가리지 않게 한다 */
+.unit-slot-card.with-hp .key-badge { top: 14px; }
 
 /* 유닛 네모 왼쪽 위 꼭짓점에 붙는 단축키 토큰 */
 .key-badge {
