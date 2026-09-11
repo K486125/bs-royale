@@ -818,7 +818,7 @@ async function moveUnit(fromKey, dir) {
     startActionCooldown();
   } catch (err) {
     console.error("이동 실패:", err);
-    pushNotice("이동하지 못했습니다.");
+    writeFailNotice("이동", err);
   } finally {
     moveInFlight = false;
   }
@@ -983,6 +983,15 @@ window.addEventListener("keydown", (e) => {
 });
 
 // ---------- 체력 ----------
+// 쓰기가 거부되면 화면에서는 "아무 일도 안 일어남"으로 보이기 때문에,
+// 권한 거부(대개 데이터베이스 규칙이 아직 갱신되지 않은 경우)는 따로 알려준다.
+function writeFailNotice(action, err) {
+  const message = (err && (err.code || err.message) || "").toString().toLowerCase();
+  const denied = message.includes("permission");
+  pushNotice(denied ? `${action}하지 못했습니다.\n권한이 거부되었습니다.` : `${action}하지 못했습니다.`,
+    { group: "write-fail", duration: 2400 });
+}
+
 function hpOf(battle, role, slot, file) {
   const table = battle[role === "host" ? "hostHp" : "guestHp"] || {};
   const value = table[slot];
@@ -1207,9 +1216,10 @@ async function fireAttack() {
     return;
   }
 
+  // 001은 바로 앞의 적만 때린다. 사거리 안에 둘이 있어도 가까운 쪽 하나만 맞는다.
   const opp = battle[oppField()] || {};
-  const hits = attackTiles(from, aimDir, unit.file).filter((t) => opp[t.key]);
-  if (!hits.length) {
+  const hit = attackTiles(from, aimDir, unit.file).find((t) => opp[t.key]);
+  if (!hit) {
     pushNotice("범위 내에 적 유닛이 없습니다.", { group: "attack", duration: 1800 });
     return;
   }
@@ -1222,15 +1232,13 @@ async function fireAttack() {
     actedAt: serverTimestamp()
   };
 
-  hits.forEach((hit) => {
-    const target = opp[hit.key];
-    const targetSlot = target.slot ?? 0;
-    const damage = spec.damage[hit.distance - 1] || 0;
-    const remaining = Math.max(0, hpOf(battle, oppRole, targetSlot, target.file) - damage);
-    updates[`${oppRole}Hp/${targetSlot}`] = remaining;
-    // 체력이 0이 된 유닛은 판에서 내린다.
-    if (remaining === 0) updates[`${oppField()}/${hit.key}`] = null;
-  });
+  const target = opp[hit.key];
+  const targetSlot = target.slot ?? 0;
+  const damage = spec.damage[hit.distance - 1] || 0;
+  const remaining = Math.max(0, hpOf(battle, oppRole, targetSlot, target.file) - damage);
+  updates[`${oppRole}Hp/${targetSlot}`] = remaining;
+  // 체력이 0이 된 유닛은 판에서 내린다.
+  if (remaining === 0) updates[`${oppField()}/${hit.key}`] = null;
 
   Object.assign(updates, turnHandoverUpdates(battle, left));
 
@@ -1243,7 +1251,7 @@ async function fireAttack() {
     startActionCooldown();
   } catch (err) {
     console.error("공격 실패:", err);
-    pushNotice("공격하지 못했습니다.");
+    writeFailNotice("공격", err);
   } finally {
     attackInFlight = false;
   }
