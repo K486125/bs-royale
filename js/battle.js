@@ -1226,11 +1226,17 @@ async function fireAttack() {
 
   const oppRole = isHost ? "guest" : "host";
   const left = Math.max(0, (battle.movesLeft || 0) - 1);
-  const updates = {
-    [`${myRole()}Attacked/${slot}`]: true,
-    movesLeft: left,
-    actedAt: serverTimestamp()
-  };
+  const handover = turnHandoverUpdates(battle, left);
+
+  const updates = { movesLeft: left, actedAt: serverTimestamp() };
+
+  // 이 공격으로 차례가 끝나면 "공격함" 표시를 통째로 지우게 되는데,
+  // 그때 개별 표시까지 같이 쓰면 한 번의 쓰기에 부모 경로와 자식 경로가 함께 들어간다.
+  // Firebase는 그런 쓰기를 통째로 거부하므로(이동 2회 뒤 공격이 실패하던 원인),
+  // 지우는 경우에는 개별 표시를 넣지 않는다.
+  if (!Object.prototype.hasOwnProperty.call(handover, `${myRole()}Attacked`)) {
+    updates[`${myRole()}Attacked/${slot}`] = true;
+  }
 
   const target = opp[hit.key];
   const targetSlot = target.slot ?? 0;
@@ -1240,7 +1246,7 @@ async function fireAttack() {
   // 체력이 0이 된 유닛은 판에서 내린다.
   if (remaining === 0) updates[`${oppField()}/${hit.key}`] = null;
 
-  Object.assign(updates, turnHandoverUpdates(battle, left));
+  Object.assign(updates, handover);
 
   attackInFlight = true;
   playSelect();
