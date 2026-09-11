@@ -22,6 +22,9 @@ const BOUNDARY_ROW = 3; // 세로 7칸 중 가운데 한 줄 = 배치 불가 경
 const PLACING_MS = 60000;
 const MAX_TURNS = 10;          // 이만큼 돌면 매치 종료
 const MOVES_PER_TURN = 3;      // 한 차례에 쓸 수 있는 이동 횟수
+// 한 칸 움직인 뒤 이만큼은 다음 이동을 받지 않는다.
+// 연속으로 밀어 넣으면 서버에 반영되기 전 상태로 다음 이동을 계산하게 되어 어긋날 수 있다.
+const MOVE_COOLDOWN_MS = 1000;
 const TURN_IDLE_MS = 20000;    // 이 시간 동안 아무 것도 안 하면 매치가 끊긴다
 // 개발 중에는 방치 감지를 꺼둔다. 상대가 이동을 마칠 때까지 그냥 기다린다.
 // 다시 켜려면 이 값만 true로 바꾸면 된다.
@@ -397,6 +400,7 @@ function renderMoveHints(battle) {
   });
 
   if (!battle || battle.phase !== "playing" || !selectedTile || !isMyTurn(battle)) return;
+  if (moveInFlight || moveOnCooldown()) return; // 아직 다음 이동을 받지 않는 동안
 
   Object.keys(ARROW_CLASS).forEach((key) => {
     const target = stepTarget(battle, selectedTile, screenDirection(key));
@@ -657,9 +661,15 @@ function hasAnyMove(battle) {
 
 // 한 칸 이동. 남은 횟수가 0이 되면 차례가 넘어간다.
 let moveInFlight = false;
+let moveReadyAt = 0; // 이 시각 전에는 다음 이동을 받지 않는다 (경과 시간만 보므로 PC 시계와 무관)
+
+function moveOnCooldown() {
+  return Date.now() < moveReadyAt;
+}
+
 async function moveUnit(fromKey, dir) {
   const battle = currentRoom && currentRoom.battle;
-  if (!battle || moveInFlight || !isMyTurn(battle)) return;
+  if (!battle || moveInFlight || moveOnCooldown() || !isMyTurn(battle)) return;
 
   const mine = battle[battleField()] || {};
   const unit = mine[fromKey];
@@ -687,6 +697,11 @@ async function moveUnit(fromKey, dir) {
   playSelect();
   try {
     await update(ref(db, `rooms/${roomId}/battle`), updates);
+    moveReadyAt = Date.now() + MOVE_COOLDOWN_MS;
+    // 쉬는 동안에는 화살표를 감췄다가, 끝나면 다시 그려서 "이제 움직일 수 있다"를 보여준다.
+    setTimeout(() => {
+      if (currentRoom && currentRoom.battle) renderBattle(currentRoom);
+    }, MOVE_COOLDOWN_MS);
   } catch (err) {
     console.error("이동 실패:", err);
     pushNotice("이동하지 못했습니다.");
@@ -790,7 +805,7 @@ actMoveBtn.addEventListener("click", chooseMove);
 // 방향키로 한 칸씩 움직인다.
 window.addEventListener("keydown", (e) => {
   const dir = screenDirection(e.key);
-  if (!dir) return;
+  if (!dir || e.repeat) return; // 누르고 있어도 한 번만 (한 칸씩 눌러서 움직인다)
 
   const battle = currentRoom && currentRoom.battle;
   if (!battle || battle.phase !== "playing") return;
