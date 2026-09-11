@@ -1,5 +1,6 @@
 import { firebaseConfig } from "./firebase-config.js";
 import { unitFrameClass } from "./unit-colors.js";
+import { maxHp } from "./unit-stats.js";
 import { playSelect } from "./sfx.js";
 import {
   newChatKey, watchChatData, isLastLeaveNotice, noticeEntry, trimRootUpdates
@@ -25,7 +26,7 @@ const MOVES_PER_TURN = 3;      // 한 차례에 쓸 수 있는 이동 횟수
 // 한 칸 움직인 뒤 이만큼은 다음 이동을 받지 않는다.
 // 연속으로 밀어 넣으면 서버에 반영되기 전 상태로 다음 이동을 계산하게 되어 어긋날 수 있다.
 const MOVE_COOLDOWN_MS = 1000;
-const UNIT_MAX_HP = 1000;      // 임시 체력. 나중에 유닛마다 다르게 줄 수 있다
+
 const TURN_IDLE_MS = 20000;    // 이 시간 동안 아무 것도 안 하면 매치가 끊긴다
 // 개발 중에는 방치 감지를 꺼둔다. 상대가 이동을 마칠 때까지 그냥 기다린다.
 // 다시 켜려면 이 값만 true로 바꾸면 된다.
@@ -631,15 +632,23 @@ async function startPlaying() {
   if (playStartRequested) return;
   playStartRequested = true;
   try {
-    const fullHp = { 0: UNIT_MAX_HP, 1: UNIT_MAX_HP, 2: UNIT_MAX_HP };
+    // 캐릭터마다 기본 체력이 다르므로, 실제로 배치된 유닛을 보고 채운다.
+    const battle = (currentRoom && currentRoom.battle) || {};
+    const fullHp = (placements) => {
+      const table = {};
+      Object.values(placements || {}).forEach((u) => {
+        if (u) table[u.slot ?? 0] = maxHp(u.file);
+      });
+      return table;
+    };
     await update(ref(db, `rooms/${roomId}/battle`), {
       phase: "playing",
       turn: 1,
       active: "host", // 방장이 먼저 움직인다
       movesLeft: MOVES_PER_TURN,
       actedAt: serverTimestamp(),
-      hostHp: fullHp,
-      guestHp: fullHp
+      hostHp: fullHp(battle.hostPlacements),
+      guestHp: fullHp(battle.guestPlacements)
     });
   } catch (err) {
     console.error("턴 시작 실패:", err);
@@ -878,10 +887,10 @@ window.addEventListener("keydown", (e) => {
 });
 
 // ---------- 체력 ----------
-function hpOf(battle, role, slot) {
+function hpOf(battle, role, slot, file) {
   const table = battle[role === "host" ? "hostHp" : "guestHp"] || {};
   const value = table[slot];
-  return typeof value === "number" ? value : UNIT_MAX_HP;
+  return typeof value === "number" ? value : maxHp(file);
 }
 
 // 남은 비율에 따라 초록 -> 노랑 -> 주황 -> 빨강.
@@ -893,8 +902,8 @@ function hpClass(ratio) {
 }
 
 // 숫자는 남은 체력만 보여준다 (1000 -> 670). 최대치는 적지 않는다.
-function hpBarHtml(hp) {
-  const ratio = Math.max(0, Math.min(1, hp / UNIT_MAX_HP));
+function hpBarHtml(hp, file) {
+  const ratio = Math.max(0, Math.min(1, hp / maxHp(file)));
   return `
     <div class="hp-bar ${hpClass(ratio)}">
       <div class="hp-fill" style="width: ${ratio * 100}%"></div>
@@ -915,7 +924,7 @@ function renderTurnSidebar(myPlacements) {
       card.className = "unit-slot-card with-hp" + (unit.slot === activeSlot ? " selected" : "");
       card.innerHTML = `
         <span class="key-badge">${(unit.slot ?? 0) + 1}</span>
-        ${hpBarHtml(hpOf(battle, myRole(), unit.slot ?? 0))}
+        ${hpBarHtml(hpOf(battle, myRole(), unit.slot ?? 0, unit.file), unit.file)}
         <div class="unit-tile ${unitFrameClass(unit.file)}">
           <img src="${AVATAR_PATH}${unit.file}" alt="">
         </div>
@@ -946,7 +955,7 @@ function renderEnemySidebar(battle, oppPlacements) {
       const card = document.createElement("div");
       card.className = "unit-slot-card";
       card.innerHTML = `
-        ${hpBarHtml(hpOf(battle, oppRole, unit.slot ?? 0))}
+        ${hpBarHtml(hpOf(battle, oppRole, unit.slot ?? 0, unit.file), unit.file)}
         <div class="unit-tile ${unitFrameClass(unit.file)}">
           <img src="${AVATAR_PATH}${unit.file}" alt="">
         </div>
