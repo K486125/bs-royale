@@ -260,6 +260,7 @@ function renderSidebar(myPlacements) {
       + (isPlaced ? " placed" : "")
       + (selectedSlot === i ? " selected" : "");
     card.innerHTML = `
+      <span class="key-badge">${i + 1}</span>
       <div class="unit-tile ${unitFrameClass(file)}">
         <img src="${AVATAR_PATH}${file}" alt="">
       </div>
@@ -381,6 +382,28 @@ function renderMapTiles(myPlacements, oppPlacements) {
     tile.innerHTML = placement
       ? `<div class="tile-unit-frame ${unitFrameClass(placement.file)}"><img src="${AVATAR_PATH}${placement.file}" alt=""></div>`
       : "";
+  });
+}
+
+// 고른 유닛 주변에 "갈 수 있는 방향"만 화살표로 표시한다.
+// 화살표는 화면 기준이라, 판이 뒤집혀 보이는 게스트에서도 누를 방향과 그림이 일치한다.
+const ARROW_CLASS = {
+  ArrowUp: "move-up", ArrowDown: "move-down", ArrowLeft: "move-left", ArrowRight: "move-right"
+};
+
+function renderMoveHints(battle) {
+  mapEl.querySelectorAll(".tile").forEach((tile) => {
+    tile.classList.remove("move-hint", "move-up", "move-down", "move-left", "move-right");
+  });
+
+  if (!battle || battle.phase !== "playing" || !selectedTile || !isMyTurn(battle)) return;
+
+  Object.keys(ARROW_CLASS).forEach((key) => {
+    const target = stepTarget(battle, selectedTile, screenDirection(key));
+    if (!target) return; // 판 밖이거나 누가 서 있는 방향에는 화살표를 그리지 않는다
+    const { r, c } = parseTile(target);
+    const tile = mapEl.querySelector(`.tile[data-row="${r}"][data-col="${c}"]`);
+    if (tile) tile.classList.add("move-hint", ARROW_CLASS[key]);
   });
 }
 
@@ -799,6 +822,7 @@ function renderTurnSidebar(myPlacements) {
       const card = document.createElement("div");
       card.className = "unit-slot-card" + (selectedTile === key ? " selected" : "");
       card.innerHTML = `
+        <span class="key-badge">${(unit.slot ?? 0) + 1}</span>
         <div class="unit-tile ${unitFrameClass(unit.file)}">
           <img src="${AVATAR_PATH}${unit.file}" alt="">
         </div>
@@ -1017,6 +1041,7 @@ function renderBattle(room) {
   }
 
   renderMapTiles(myPlacements, oppPlacements);
+  renderMoveHints(battle);
   renderTimer(battle);
   renderCountdown(battle);
   renderTurnBar(battle);
