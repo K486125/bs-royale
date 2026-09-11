@@ -31,6 +31,7 @@ const TURN_IDLE_MS = 20000;    // 이 시간 동안 아무 것도 안 하면 매
 // 개발 중에는 방치 감지를 꺼둔다. 상대가 이동을 마칠 때까지 그냥 기다린다.
 // 다시 켜려면 이 값만 true로 바꾸면 된다.
 const IDLE_TIMEOUT_ENABLED = false;
+const ATTACK_FLASH_MS = 520;   // 공격한 뒤 사거리를 잠깐 남겨두는 시간
 const PLAY_INTRO_MS = 900;     // 카운트다운 뒤 전투 화면으로 넘어가기 전 짧은 로딩
 const LOADING_MIN_MS = 1400; // 로딩 화면 최소 노출 시간 (버벅거림 방지용 체감 대기)
 const MATCH_END_MS = 1800; // "매치 종료" 문구를 보여주는 시간
@@ -67,6 +68,7 @@ let activeSlot = null;
 let sharedSelection = null; // 방 데이터에 적어둔 내 선택 (상대 화면에 표시하기 위함)
 let actionMode = null;     // 그 유닛으로 무엇을 할지: "move" | "attack"
 let aimDir = null;         // 공격 조준 방향 (방향키로 정하고 엔터로 쏜다)
+let attackFlash = null;    // 방금 쏜 사거리 (바로 지우지 않고 잠깐 남겨 사라지는 모습을 보여준다)
 let matchFinished = false; // 정상 종료로 대기실에 돌아가는 중인지 (상대 이탈과 구분)
 
 const loadingOverlay = document.getElementById("loading-overlay");
@@ -472,10 +474,21 @@ function rangeBox(fromKey, tiles, aimed) {
 
 function renderAttackRange(battle) {
   mapEl.querySelectorAll(".range-box").forEach((el) => el.remove());
+  if (!battle || battle.phase !== "playing") return;
 
-  // 공격을 고른 뒤에만 사거리를 보여준다.
-  if (!battle || battle.phase !== "playing" || !isMyTurn(battle)) return;
-  if (actionMode !== "attack") return;
+  // 공격이 나간 직후에는 조준했던 자리를 잠깐 남겨 서서히 사라지게 한다.
+  // (쏘자마자 뚝 사라지면 어디로 쐈는지 확인할 틈이 없다)
+  if (attackFlash) {
+    if (Date.now() < attackFlash.until) {
+      const box = rangeBox(attackFlash.fromKey, attackFlash.tiles, true);
+      box.classList.add("fading");
+      mapEl.appendChild(box);
+    }
+    return;
+  }
+
+  // 그 밖에는 공격을 고른 뒤에만 사거리를 보여준다.
+  if (!isMyTurn(battle) || actionMode !== "attack") return;
 
   const from = activeTile(battle);
   const unit = myUnitAt(battle, from);
@@ -1303,7 +1316,8 @@ async function fireAttack() {
 
   // 001은 바로 앞의 적만 때린다. 사거리 안에 둘이 있어도 가까운 쪽 하나만 맞는다.
   const opp = battle[oppField()] || {};
-  const hit = attackTiles(from, aimDir, unit.file).find((t) => opp[t.key]);
+  const line = attackTiles(from, aimDir, unit.file);
+  const hit = line.find((t) => opp[t.key]);
   if (!hit) {
     pushNotice("범위 내에 적 유닛이 없습니다.", { group: "attack", duration: 1800 });
     return;
@@ -1339,6 +1353,11 @@ async function fireAttack() {
     await update(ref(db, `rooms/${roomId}/battle`), updates);
     actionMode = null;
     aimDir = null;
+    attackFlash = { fromKey: from, tiles: line, until: Date.now() + ATTACK_FLASH_MS };
+    setTimeout(() => {
+      attackFlash = null;
+      if (currentRoom && currentRoom.battle) renderBattle(currentRoom);
+    }, ATTACK_FLASH_MS);
     startActionCooldown();
   } catch (err) {
     console.error("공격 실패:", err);

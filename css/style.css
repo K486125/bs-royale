@@ -1325,6 +1325,16 @@ body.battle-page {
   border-radius: 5px;
   background: rgba(255, 255, 255, .18);
 }
+/* 쏘고 난 뒤 잠깐 남았다가 사라지는 모습 */
+.range-box.fading {
+  animation: range-fade .52s ease-out forwards;
+}
+@keyframes range-fade {
+  0%   { opacity: 1; }
+  35%  { opacity: 1; }
+  100% { opacity: 0; }
+}
+
 /* 조준한 방향은 더 진하게 */
 .range-box.aimed {
   background: rgba(255, 255, 255, .34);
