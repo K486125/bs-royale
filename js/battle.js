@@ -23,6 +23,9 @@ const PLACING_MS = 60000;
 const MAX_TURNS = 10;          // 이만큼 돌면 매치 종료
 const MOVES_PER_TURN = 3;      // 한 차례에 쓸 수 있는 이동 횟수
 const TURN_IDLE_MS = 20000;    // 이 시간 동안 아무 것도 안 하면 매치가 끊긴다
+// 개발 중에는 방치 감지를 꺼둔다. 상대가 이동을 마칠 때까지 그냥 기다린다.
+// 다시 켜려면 이 값만 true로 바꾸면 된다.
+const IDLE_TIMEOUT_ENABLED = false;
 const LOADING_MIN_MS = 1400; // 로딩 화면 최소 노출 시간 (버벅거림 방지용 체감 대기)
 const MATCH_END_MS = 1800; // "매치 종료" 문구를 보여주는 시간
 const LEAVE_NOTICE_MS = 1100; // 상대 퇴장 알림을 보여주는 시간 (이후 로딩 화면)
@@ -777,13 +780,22 @@ function renderTurnBar(battle) {
   }
   turnBarEl.classList.remove("hidden");
 
-  const head = `턴 ${battle.turn || 1}/${MAX_TURNS} · ${isMyTurn(battle) ? "내 차례" : "상대 차례"}`;
-  turnBarEl.classList.toggle("mine", isMyTurn(battle));
+  const mine = isMyTurn(battle);
+  turnBarEl.classList.toggle("mine", mine);
+
+  const head = `턴 ${battle.turn || 1}/${MAX_TURNS} · ${mine ? "내 차례" : "상대 차례"}`;
+  const moves = `${mine ? "이동" : "상대 이동"} ${battle.movesLeft ?? MOVES_PER_TURN}회 남음`;
+
+  // 방치 감지를 꺼둔 동안에는 남은 시간을 세지 않고, 상대가 마칠 때까지 기다린다.
+  if (!IDLE_TIMEOUT_ENABLED) {
+    turnBarEl.textContent = `${head} · ${moves}`;
+    return;
+  }
 
   // 서버 시각을 모르거나 아직 첫 기록이 없으면 남은 시간을 셈하지 않는다
   // (시계가 어긋난 PC에서 시작하자마자 시간 초과가 되는 것을 막는다).
   if (!serverTimeReady() || !battle.actedAt) {
-    turnBarEl.textContent = `${head} · 이동 ${battle.movesLeft ?? MOVES_PER_TURN}회 남음`;
+    turnBarEl.textContent = `${head} · ${moves}`;
     whenServerTime(() => {
       if (currentRoom && currentRoom.battle) renderTurnBar(currentRoom.battle);
     });
@@ -792,8 +804,7 @@ function renderTurnBar(battle) {
 
   const tick = () => {
     const left = Math.max(0, TURN_IDLE_MS - (serverNow() - battle.actedAt));
-    const sec = Math.ceil(left / 1000);
-    turnBarEl.textContent = `${head} · 이동 ${battle.movesLeft ?? 0}회 남음 · ${sec}s`;
+    turnBarEl.textContent = `${head} · ${moves} · ${Math.ceil(left / 1000)}s`;
     if (left <= 0) {
       clearInterval(turnInterval);
       endByIdle();
