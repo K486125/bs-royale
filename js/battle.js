@@ -277,7 +277,17 @@ function renderSidebar(myPlacements) {
 // 사이드바 클릭과 숫자 키가 같은 길을 쓰도록 한 곳에 모은다.
 function selectUnitSlot(slot) {
   const battle = currentRoom && currentRoom.battle;
-  if (!battle || battle.phase !== "placing" || myDone) return;
+  if (!battle) return;
+
+  // 진행 중에는 그 번호의 유닛이 서 있는 칸을 찾아서 고른다.
+  if (battle.phase === "playing") {
+    const mine = battle[battleField()] || {};
+    const key = Object.keys(mine).find((k) => mine[k] && mine[k].slot === slot);
+    if (key) selectUnitAt(key);
+    return;
+  }
+
+  if (battle.phase !== "placing" || myDone) return;
   if (!myUnits[slot]) return;
 
   const myPlacements = battle[battleField()] || {};
@@ -287,11 +297,19 @@ function selectUnitSlot(slot) {
   renderSidebar(myPlacements);
 }
 
-// 1, 2, 3 키로 유닛을 고른다. 같은 키를 다시 누르면 선택이 풀린다.
+// 1, 2, 3 키로 유닛을 고르고, W 키로 이동을 고른다.
+// 같은 키를 다시 누르면 선택이 풀린다.
 window.addEventListener("keydown", (e) => {
   if (e.repeat || e.ctrlKey || e.altKey || e.metaKey) return;
+
   const slot = ["1", "2", "3"].indexOf(e.key);
-  if (slot !== -1) selectUnitSlot(slot);
+  if (slot !== -1) {
+    selectUnitSlot(slot);
+    return;
+  }
+
+  // 한글 입력 상태에서도 같은 자리의 키가 먹도록 e.code를 함께 본다.
+  if (e.code === "KeyW" || (e.key || "").toLowerCase() === "w") chooseMove();
 });
 
 // ---------- 자동 배치 (개발/테스트용) ----------
@@ -625,7 +643,11 @@ async function moveUnit(fromKey, dir) {
   if (!unit) return;
 
   const toKey = stepTarget(battle, fromKey, dir);
-  if (!toKey) return; // 판 밖이거나 앞이 막혔다
+  if (!toKey) {
+    // 판 밖이거나 그 방향에 누가 서 있다 (내 유닛이든 상대 유닛이든 막힌다)
+    pushNotice("실패: 해당 방향으로\n이동할 수 없습니다.", { group: "move", duration: 1800 });
+    return;
+  }
 
   const left = Math.max(0, (battle.movesLeft || 0) - 1);
   const field = battleField();
@@ -724,11 +746,23 @@ function selectUnitAt(key) {
   renderBattle(currentRoom);
 }
 
-actMoveBtn.addEventListener("click", () => {
-  if (!selectedTile) return;
+function chooseMove() {
+  const battle = currentRoom && currentRoom.battle;
+  if (!battle || battle.phase !== "playing") return;
+
+  if (!isMyTurn(battle)) {
+    pushNotice("상대 차례입니다.", { group: "turn", duration: 1400 });
+    return;
+  }
+  if (!selectedTile) {
+    pushNotice("움직일 유닛을 먼저 고르세요.", { group: "turn", duration: 1600 });
+    return;
+  }
   actionMode = "move";
   renderBattle(currentRoom);
-});
+}
+
+actMoveBtn.addEventListener("click", chooseMove);
 
 // 방향키로 한 칸씩 움직인다.
 window.addEventListener("keydown", (e) => {
@@ -748,7 +782,7 @@ window.addEventListener("keydown", (e) => {
     return;
   }
   if (actionMode !== "move") {
-    pushNotice("이동을 먼저 선택하세요.", { group: "turn", duration: 1600 });
+    pushNotice("이동(W)을 먼저 선택하세요.", { group: "turn", duration: 1600 });
     return;
   }
   moveUnit(selectedTile, dir);

@@ -1469,6 +1469,8 @@ body.battle-page {
   font-size: 25px;
   font-weight: 900;
   text-align: center;
+  /* 문구 안의 줄바꿈을 그대로 살린다 (두 줄짜리 안내에 쓴다) */
+  white-space: pre-line;
   line-height: 1.4;
   /* 검정 외곽선 + 아래로 떨어지는 그림자 */
   text-shadow:
