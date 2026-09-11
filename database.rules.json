@@ -93,6 +93,9 @@
           "actedAt": { ".validate": "newData.isNumber()" },
           "endReason": { ".validate": "newData.isString() && newData.val().matches(/^(timeout|turns)$/)" },
 
+          "hostSelected": { ".validate": "newData.isString() && newData.val().matches(/^[0-6]_[0-6]$/) && root.child('rooms').child($roomId).child('hostUid').val() === auth.uid" },
+          "guestSelected": { ".validate": "newData.isString() && newData.val().matches(/^[0-6]_[0-6]$/) && root.child('rooms').child($roomId).child('guestUid').val() === auth.uid" },
+
           "hostDone": { ".validate": "newData.isBoolean() && root.child('rooms').child($roomId).child('hostUid').val() === auth.uid" },
           "guestDone": { ".validate": "newData.isBoolean() && root.child('rooms').child($roomId).child('guestUid').val() === auth.uid" },
 

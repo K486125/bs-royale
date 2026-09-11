@@ -1191,6 +1191,11 @@ body.battle-page {
   0%, 100% { opacity: .55; }
   50%      { opacity: 1; }
 }
+/* 상대 표시는 늘 또렷해야 하므로 덜 흐려지게 한다 */
+@keyframes opp-mark-pulse {
+  0%, 100% { opacity: .8; }
+  50%      { opacity: 1; }
+}
 .tile.mine-area { background: #1f3a63; border: 1px solid #2c4d80; }
 .tile.enemy-area { background: #5c2020; border: 1px solid #7a2a2a; }
 /* 배치 불가 경계선: 파랑/빨강 진영과 확실히 구분되도록 무채색 회색으로 둔다 */
@@ -1202,6 +1207,63 @@ body.battle-page {
 .tile.mine-area:not(.occupied) { cursor: pointer; }
 .tile.mine-area:not(.occupied):hover { outline: 2px solid var(--accent); }
 .tile.occupied { cursor: default; }
+
+/* ---------- 진행 단계의 판 ---------- */
+/* 배치가 끝나면 진영 구분(파랑/빨강/경계선)이 필요 없으므로 판 전체를 초록으로 통일하고,
+   대신 유닛이 서 있는 칸의 테두리 색으로 내 것과 상대 것을 구분한다. */
+.battle-map.playing .tile,
+.battle-map.playing .tile.boundary {
+  background: #2f6b3a;
+  border: 1px solid #3f8a4d;
+  cursor: default;
+}
+.battle-map.playing .tile:not(.occupied):hover { outline: none; }
+.battle-map.playing .tile.occupied { cursor: pointer; }
+
+.battle-map.playing .tile.mine-unit { border: 3px solid #57a8ff; }
+.battle-map.playing .tile.enemy-unit { border: 3px solid #ff5a5a; }
+
+/* 상대가 지금 움직이려고 고른 유닛. 네 방향 화살표를 그 칸 안에 모아 보여준다. */
+.opp-active-mark {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 2;
+  border-radius: 4px;
+  /* 유닛 그림 위에 흰 화살표를 올리므로, 살짝 어둡게 깔아 대비를 준다 */
+  background: rgba(8, 10, 24, .38);
+  animation: opp-mark-pulse 1.1s ease-in-out infinite;
+}
+.opp-active-mark i {
+  position: absolute;
+  width: 0;
+  height: 0;
+  filter: drop-shadow(0 0 2px rgba(0,0,0,.95)) drop-shadow(0 1px 1px rgba(0,0,0,.9));
+}
+.opp-active-mark .a-up {
+  top: 2px; left: 50%; transform: translateX(-50%);
+  border-left: 8px solid transparent;
+  border-right: 8px solid transparent;
+  border-bottom: 11px solid #fff;
+}
+.opp-active-mark .a-down {
+  bottom: 2px; left: 50%; transform: translateX(-50%);
+  border-left: 8px solid transparent;
+  border-right: 8px solid transparent;
+  border-top: 11px solid #fff;
+}
+.opp-active-mark .a-left {
+  left: 2px; top: 50%; transform: translateY(-50%);
+  border-top: 8px solid transparent;
+  border-bottom: 8px solid transparent;
+  border-right: 11px solid #fff;
+}
+.opp-active-mark .a-right {
+  right: 2px; top: 50%; transform: translateY(-50%);
+  border-top: 8px solid transparent;
+  border-bottom: 8px solid transparent;
+  border-left: 11px solid #fff;
+}
 
 /* 맵에 놓인 유닛도 사이드바의 유닛 버튼과 같은 등급 테두리/면 색을 쓴다 */
 .tile-unit-frame {

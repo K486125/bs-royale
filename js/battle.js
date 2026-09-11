@@ -59,6 +59,7 @@ let timerInterval = null;
 let countdownInterval = null;
 let turnInterval = null;
 let selectedTile = null;   // 조작하려고 고른 유닛이 서 있는 칸 ("행_열")
+let sharedSelection = null; // 방 데이터에 적어둔 내 선택 (상대 화면에 표시하기 위함)
 let actionMode = null;     // 그 유닛으로 무엇을 할지: "move" | "attack"
 let matchFinished = false; // 정상 종료로 대기실에 돌아가는 중인지 (상대 이탈과 구분)
 
@@ -376,15 +377,36 @@ function maybeAutoPlace(myPlacements) {
 
 // ---------- 맵 타일 렌더링 ----------
 function renderMapTiles(myPlacements, oppPlacements) {
+  const battle = (currentRoom && currentRoom.battle) || {};
+  const playing = battle.phase === "playing";
+  mapEl.classList.toggle("playing", playing);
+
+  // 상대가 지금 고른 유닛 (상대 차례일 때만 보여준다)
+  const oppSelected = playing && battle.active !== myRole()
+    ? battle[isHost ? "guestSelected" : "hostSelected"]
+    : null;
+
   mapEl.querySelectorAll(".tile").forEach((tile) => {
     const key = `${tile.dataset.row}_${tile.dataset.col}`;
-    const placement = myPlacements[key] || oppPlacements[key];
+    const mine = myPlacements[key];
+    const placement = mine || oppPlacements[key];
 
     tile.classList.toggle("occupied", !!placement);
     tile.classList.toggle("unit-selected", !!selectedTile && key === selectedTile);
+    tile.classList.toggle("mine-unit", !!mine);
+    tile.classList.toggle("enemy-unit", !!placement && !mine);
+
     tile.innerHTML = placement
       ? `<div class="tile-unit-frame ${unitFrameClass(placement.file)}"><img src="${AVATAR_PATH}${placement.file}" alt=""></div>`
       : "";
+
+    // 상대가 움직이려는 유닛에는 네 방향 화살표를 그 칸 안에 모아 표시한다.
+    if (placement && !mine && key === oppSelected) {
+      const mark = document.createElement("div");
+      mark.className = "opp-active-mark";
+      mark.innerHTML = `<i class="a-up"></i><i class="a-down"></i><i class="a-left"></i><i class="a-right"></i>`;
+      tile.appendChild(mark);
+    }
   });
 }
 
@@ -694,6 +716,7 @@ async function moveUnit(fromKey, dir) {
 
   moveInFlight = true;
   selectedTile = toKey; // 움직인 유닛을 계속 잡고 있는다 (연속 이동이 편하도록)
+  shareSelection(toKey);
   playSelect();
   try {
     await update(ref(db, `rooms/${roomId}/battle`), updates);
@@ -762,6 +785,16 @@ async function endByIdle() {
   }
 }
 
+// 내가 어떤 유닛을 움직이려는지 상대도 볼 수 있도록 방 데이터에 적어둔다.
+// 값이 바뀔 때만 쓴다 (화면을 다시 그릴 때마다 쓰면 쓸데없이 오간다).
+function shareSelection(key) {
+  const next = key || null;
+  if (sharedSelection === next) return;
+  sharedSelection = next;
+  update(ref(db, `rooms/${roomId}/battle`), { [`${myRole()}Selected`]: next })
+    .catch((err) => console.error("선택 표시 실패:", err));
+}
+
 // 조작할 유닛을 고른다. 고르기만 해서는 아무 일도 일어나지 않고,
 // 이동인지 공격인지 한 번 더 선택해야 한다.
 function selectUnitAt(key) {
@@ -781,6 +814,7 @@ function selectUnitAt(key) {
     selectedTile = key;
     actionMode = null;
   }
+  shareSelection(selectedTile);
   renderBattle(currentRoom);
 }
 
@@ -1047,6 +1081,7 @@ function renderBattle(room) {
     if (!isMyTurn(battle) || (selectedTile && !myPlacements[selectedTile])) {
       selectedTile = null;
       actionMode = null;
+      shareSelection(null);
     }
     renderTurnSidebar(myPlacements);
   } else {
