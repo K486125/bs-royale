@@ -23,12 +23,6 @@
   <aside id="unit-sidebar" class="unit-sidebar">
     <div id="unit-slots" class="unit-slots"></div>
 
-    <!-- 고른 유닛으로 무엇을 할지 (공격은 아직 준비 중) -->
-    <div id="turn-actions" class="turn-actions hidden">
-      <button id="act-move" class="action-btn" type="button">이동 (W)</button>
-      <button id="act-attack" class="action-btn" type="button" disabled>공격</button>
-    </div>
-
     <!-- 개발/테스트용: 켜두면 배치 단계에서 유닛 3개가 알아서 무작위로 놓인다 -->
     <div class="auto-place">
       <span class="auto-place-label">자동 배치</span>
@@ -47,6 +41,12 @@
     <div id="placement-timer" class="placement-timer hidden">배치 시간: 1:00</div>
     <div id="turn-bar" class="turn-bar hidden">턴 1/10</div>
     <div id="battle-map" class="battle-map"></div>
+
+    <!-- 고른 유닛으로 무엇을 할지. 판 바로 아래 가운데 (공격은 아직 준비 중) -->
+    <div id="turn-actions" class="turn-actions hidden">
+      <button id="act-move" class="action-btn" type="button">이동 (W)</button>
+      <button id="act-attack" class="action-btn" type="button" disabled>공격</button>
+    </div>
   </div>
 </main>
 
