@@ -100,6 +100,19 @@
             "$slot": { ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 10000 && $slot.matches(/^[0-2]$/)" }
           },
 
+          "hostAmmo": {
+            "$slot": { ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 3 && $slot.matches(/^[0-2]$/)" }
+          },
+          "guestAmmo": {
+            "$slot": { ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 3 && $slot.matches(/^[0-2]$/)" }
+          },
+          "hostPending": {
+            "$slot": { ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 3 && $slot.matches(/^[0-2]$/)" }
+          },
+          "guestPending": {
+            "$slot": { ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 3 && $slot.matches(/^[0-2]$/)" }
+          },
+
           "hostSelected": { ".validate": "newData.isString() && newData.val().matches(/^[0-6]_[0-6]$/) && root.child('rooms').child($roomId).child('hostUid').val() === auth.uid" },
           "guestSelected": { ".validate": "newData.isString() && newData.val().matches(/^[0-6]_[0-6]$/) && root.child('rooms').child($roomId).child('guestUid').val() === auth.uid" },
 

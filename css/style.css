@@ -953,6 +953,26 @@ body.battle-page {
 }
 .unit-sidebar.enemy .unit-slot-card { cursor: default; }
 
+/* 탄창 표시: 유닛 그림 아래에 칸으로. 내 유닛에만 보인다. */
+.ammo-row {
+  display: flex;
+  gap: 4px;
+  margin-top: 5px;
+}
+.ammo-row i {
+  flex: 1;
+  height: 7px;
+  border-radius: 3px;
+  background: #2a3157;
+  border: 1px solid #10152c;
+  box-shadow: inset 0 1px 2px rgba(0,0,0,.5);
+  transition: background .2s ease, box-shadow .2s ease;
+}
+.ammo-row i.loaded {
+  background: linear-gradient(180deg, #ffe58a, #f0b429);
+  box-shadow: 0 0 4px rgba(255, 200, 80, .55);
+}
+
 /* ---------- 체력 바 ---------- */
 /* 유닛 그림 바로 위에 붙는다. 숫자는 남은 체력만 보여준다 (1000 -> 670). */
 .hp-bar {

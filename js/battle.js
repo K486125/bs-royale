@@ -22,7 +22,8 @@ const COLS = 7;
 const BOUNDARY_ROW = 3; // 세로 7칸 중 가운데 한 줄 = 배치 불가 경계선
 const PLACING_MS = 60000;
 const MAX_TURNS = 10;          // 이만큼 돌면 매치 종료
-const MOVES_PER_TURN = 3;      // 한 차례에 쓸 수 있는 행위 횟수 (이동과 공격을 섞어 쓴다)
+const MOVES_PER_TURN = 3;      // 한 차례에 쓸 수 있는 행위 횟수 (이동/공격/재장전을 섞어 쓴다)
+const MAX_AMMO = 3;            // 유닛마다 가지는 탄창 수
 // 한 칸 움직인 뒤 이만큼은 다음 이동을 받지 않는다.
 // 연속으로 밀어 넣으면 서버에 반영되기 전 상태로 다음 이동을 계산하게 되어 어긋날 수 있다.
 const MOVE_COOLDOWN_MS = 1000;
@@ -88,6 +89,7 @@ const turnBarEl = document.getElementById("turn-bar");
 const turnActionsEl = document.getElementById("turn-actions");
 const actMoveBtn = document.getElementById("act-move");
 const actAttackBtn = document.getElementById("act-attack");
+const actReloadBtn = document.getElementById("act-reload");
 const toastEl = document.getElementById("toast");
 
 function showToast(msg) {
@@ -330,6 +332,7 @@ window.addEventListener("keydown", (e) => {
   // 한글 입력 상태에서도 같은 자리의 키가 먹도록 e.code를 함께 본다.
   if (e.code === "KeyW" || (e.key || "").toLowerCase() === "w") chooseMove();
   else if (e.code === "KeyA" || (e.key || "").toLowerCase() === "a") chooseAttack();
+  else if (e.code === "KeyS" || (e.key || "").toLowerCase() === "s") doReload();
 });
 
 // ---------- 자동 배치 (개발/테스트용) ----------
@@ -707,7 +710,11 @@ async function startPlaying() {
       movesLeft: MOVES_PER_TURN,
       actedAt: serverTimestamp(),
       hostHp: fullHp(battle.hostPlacements),
-      guestHp: fullHp(battle.guestPlacements)
+      guestHp: fullHp(battle.guestPlacements),
+      hostAmmo: { 0: MAX_AMMO, 1: MAX_AMMO, 2: MAX_AMMO },
+      guestAmmo: { 0: MAX_AMMO, 1: MAX_AMMO, 2: MAX_AMMO },
+      hostPending: { 0: 0, 1: 0, 2: 0 },
+      guestPending: { 0: 0, 1: 0, 2: 0 }
     });
   } catch (err) {
     console.error("턴 시작 실패:", err);
@@ -776,6 +783,7 @@ function hasAnyMove(battle) {
 // 한 칸 이동. 남은 횟수가 0이 되면 차례가 넘어간다.
 let moveInFlight = false;
 let attackInFlight = false;
+let reloadInFlight = false;
 // 이 시각 전에는 다음 행동(이동/공격)을 받지 않는다.
 // 경과 시간만 보므로 PC 시계가 어긋나 있어도 정확하다.
 let actionReadyAt = 0;
@@ -786,7 +794,7 @@ function onActionCooldown() {
 
 // 쓰기가 오가는 중이면 새 행동을 받지 않는다 (연타로 같은 행동이 두 번 나가는 것을 막는다).
 function actionBusy() {
-  return moveInFlight || attackInFlight || onActionCooldown();
+  return moveInFlight || attackInFlight || reloadInFlight || onActionCooldown();
 }
 
 // 한 번 행동한 뒤 잠시 쉬고, 쉬는 시간이 끝나면 화면을 다시 그려 표시를 되살린다.
@@ -850,7 +858,16 @@ function turnHandoverUpdates(battle, movesLeft) {
   if (nextTurn > MAX_TURNS) {
     return { phase: "finished", endReason: "turns", finishedAt: serverTimestamp() };
   }
-  return { turn: nextTurn, active: "host", movesLeft: MOVES_PER_TURN };
+
+  // 턴이 하나 오를 때마다 양쪽 모든 유닛에게 재장전 거리가 하나씩 쌓인다.
+  const refill = {};
+  ["host", "guest"].forEach((role) => {
+    for (let slot = 0; slot < 3; slot++) {
+      refill[`${role}Pending/${slot}`] = Math.min(MAX_AMMO, pendingOf(battle, role, slot) + 1);
+    }
+  });
+
+  return { ...refill, turn: nextTurn, active: "host", movesLeft: MOVES_PER_TURN };
 }
 
 // 어느 방향으로도 못 움직이는 상황이면(둘러싸임) 차례가 영영 안 넘어가므로 넘겨준다.
@@ -954,6 +971,7 @@ function chooseMove() {
 
 actMoveBtn.addEventListener("click", chooseMove);
 actAttackBtn.addEventListener("click", chooseAttack);
+actReloadBtn.addEventListener("click", doReload);
 
 // 방향키로 한 칸씩 움직인다.
 window.addEventListener("keydown", (e) => {
@@ -1044,6 +1062,29 @@ function animateHpBars(root) {
   });
 }
 
+// ---------- 탄창 ----------
+function ammoOf(battle, role, slot) {
+  const table = battle[`${role}Ammo`] || {};
+  const value = table[slot];
+  return typeof value === "number" ? value : MAX_AMMO;
+}
+
+// 턴이 오를 때마다 쌓이는 재장전 거리. 이걸 한 번에 하나씩 탄창으로 옮긴다.
+function pendingOf(battle, role, slot) {
+  const table = battle[`${role}Pending`] || {};
+  const value = table[slot];
+  return typeof value === "number" ? value : 0;
+}
+
+// 유닛 그림 아래에 탄창을 칸으로 보여준다 (내 유닛만).
+function ammoRowHtml(ammo) {
+  let pips = "";
+  for (let i = 0; i < MAX_AMMO; i++) {
+    pips += `<i class="${i < ammo ? "loaded" : ""}"></i>`;
+  }
+  return `<div class="ammo-row">${pips}</div>`;
+}
+
 // ---------- 피해 표시 ----------
 // 방 데이터가 올 때마다 직전 체력과 비교해서, 줄어든 유닛 위에 숫자를 띄운다.
 // 쓰러져서 판에서 사라진 유닛도 직전 위치를 기억해 두었다가 그 자리에 띄운다.
@@ -1126,6 +1167,7 @@ function renderTurnSidebar(myPlacements) {
         <div class="unit-tile ${unitFrameClass(unit.file)}">
           <img src="${AVATAR_PATH}${unit.file}" alt="">
         </div>
+        ${ammoRowHtml(ammoOf(battle, myRole(), unit.slot ?? 0))}
       `;
       card.addEventListener("click", () => selectUnitAt(key));
       sidebarEl.appendChild(card);
@@ -1137,8 +1179,14 @@ function renderTurnSidebar(myPlacements) {
   turnActionsEl.classList.toggle("hidden", !canAct);
   actMoveBtn.classList.toggle("on", actionMode === "move");
   actAttackBtn.classList.toggle("on", actionMode === "attack");
-  // 공격 수치가 정해진 유닛만, 그리고 이번 차례에 아직 공격하지 않았을 때만 누를 수 있다.
+  // 공격 수치가 있고 탄창이 남은 유닛만 누를 수 있다.
   actAttackBtn.disabled = !canAttackNow(battle);
+
+  // 재장전 버튼에는 지금 쌓여 있는 수를 함께 보여준다.
+  const unit = myUnitAt(battle, activeTile(battle));
+  const pending = unit ? pendingOf(battle, myRole(), unit.slot ?? 0) : 0;
+  actReloadBtn.textContent = pending > 0 ? `재장전 (S) ${pending}` : "재장전 (S)";
+  actReloadBtn.disabled = !canReloadNow(battle);
 }
 
 // 오른쪽 사이드바: 상대 유닛의 상태만 보여준다 (고를 수 없고 단축키도 없다).
@@ -1235,10 +1283,19 @@ function myUnitAt(battle, key) {
 }
 
 // 행위 3회 안에서라면 같은 유닛이 몇 번이든 공격할 수 있다.
-// 막는 것은 "공격 수치가 없는 유닛"과 "사거리 안에 적이 없는 경우"뿐이다.
+// 막는 것은 공격 수치가 없는 유닛, 탄창이 빈 경우, 사거리 안에 적이 없는 경우다.
 function canAttackNow(battle) {
   const unit = myUnitAt(battle, activeTile(battle));
-  return !!(unit && attackOf(unit.file));
+  if (!unit || !attackOf(unit.file)) return false;
+  return ammoOf(battle, myRole(), unit.slot ?? 0) > 0;
+}
+
+// 쌓인 재장전이 있고 탄창이 아직 다 차지 않았을 때만 재장전할 수 있다.
+function canReloadNow(battle) {
+  const unit = myUnitAt(battle, activeTile(battle));
+  if (!unit) return false;
+  const slot = unit.slot ?? 0;
+  return pendingOf(battle, myRole(), slot) > 0 && ammoOf(battle, myRole(), slot) < MAX_AMMO;
 }
 
 // 내 유닛 중 하나라도 지금 때릴 수 있는 적이 있는지 (차례를 넘길지 판단할 때 쓴다)
@@ -1272,6 +1329,10 @@ function chooseAttack() {
   const unit = myUnitAt(battle, activeTile(battle));
   if (!unit || !attackOf(unit.file)) {
     pushNotice("이 유닛은 아직 공격할 수 없습니다.", { group: "attack", duration: 1800 });
+    return;
+  }
+  if (ammoOf(battle, myRole(), unit.slot ?? 0) <= 0) {
+    pushNotice("탄창이 비었습니다.\n재장전(S)이 필요합니다.", { group: "attack", duration: 2000 });
     return;
   }
   actionMode = "attack";
@@ -1320,9 +1381,20 @@ async function fireAttack() {
     return;
   }
 
+  const slot = unit.slot ?? 0;
+  const ammo = ammoOf(battle, myRole(), slot);
+  if (ammo <= 0) {
+    pushNotice("탄창이 비었습니다.\n재장전(S)이 필요합니다.", { group: "attack", duration: 2000 });
+    return;
+  }
+
   const oppRole = isHost ? "guest" : "host";
   const left = Math.max(0, (battle.movesLeft || 0) - 1);
-  const updates = { movesLeft: left, actedAt: serverTimestamp() };
+  const updates = {
+    movesLeft: left,
+    actedAt: serverTimestamp(),
+    [`${myRole()}Ammo/${slot}`]: ammo - 1
+  };
 
   targets.forEach((hit) => {
     const target = opp[hit.key];
@@ -1352,6 +1424,62 @@ async function fireAttack() {
     writeFailNotice("공격", err);
   } finally {
     attackInFlight = false;
+  }
+}
+
+// 쌓인 재장전 하나를 탄창으로 옮긴다. 이것도 행위 1회를 쓴다.
+async function doReload() {
+  const battle = currentRoom && currentRoom.battle;
+  if (!battle || battle.phase !== "playing" || actionBusy()) return;
+
+  if (!isMyTurn(battle)) {
+    pushNotice("상대 차례입니다.", { group: "turn", duration: 1400 });
+    return;
+  }
+  const unit = myUnitAt(battle, activeTile(battle));
+  if (!unit) {
+    pushNotice("재장전할 유닛을 먼저 고르세요.", { group: "turn", duration: 1600 });
+    return;
+  }
+
+  const slot = unit.slot ?? 0;
+  const ammo = ammoOf(battle, myRole(), slot);
+  const pending = pendingOf(battle, myRole(), slot);
+
+  if (ammo >= MAX_AMMO) {
+    pushNotice("탄창이 가득 찼습니다.", { group: "reload", duration: 1800 });
+    return;
+  }
+  if (pending <= 0) {
+    pushNotice("쌓인 재장전이 없습니다.", { group: "reload", duration: 1800 });
+    return;
+  }
+
+  const left = Math.max(0, (battle.movesLeft || 0) - 1);
+  const handover = turnHandoverUpdates(battle, left);
+  const updates = { movesLeft: left, actedAt: serverTimestamp() };
+  Object.assign(updates, handover);
+
+  // 차례가 넘어가면서 재장전이 먼저 쌓일 수 있으므로, 그 값을 기준으로 하나를 뺀다.
+  const pendingKey = `${myRole()}Pending/${slot}`;
+  const basePending = Object.prototype.hasOwnProperty.call(handover, pendingKey)
+    ? handover[pendingKey]
+    : pending;
+  updates[pendingKey] = Math.max(0, basePending - 1);
+  updates[`${myRole()}Ammo/${slot}`] = Math.min(MAX_AMMO, ammo + 1);
+
+  reloadInFlight = true;
+  playSelect();
+  try {
+    await update(ref(db, `rooms/${roomId}/battle`), updates);
+    actionMode = null;
+    aimDir = null;
+    startActionCooldown();
+  } catch (err) {
+    console.error("재장전 실패:", err);
+    writeFailNotice("재장전", err);
+  } finally {
+    reloadInFlight = false;
   }
 }
 
