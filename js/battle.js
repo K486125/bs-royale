@@ -1,6 +1,6 @@
 import { firebaseConfig } from "./firebase-config.js";
 import { unitFrameClass } from "./unit-colors.js";
-import { maxHp, attackOf } from "./unit-stats.js";
+import { maxHp, attackOf, damageAt } from "./unit-stats.js";
 import { playSelect } from "./sfx.js";
 import {
   newChatKey, watchChatData, isLastLeaveNotice, noticeEntry, trimRootUpdates
@@ -22,7 +22,7 @@ const COLS = 7;
 const BOUNDARY_ROW = 3; // 세로 7칸 중 가운데 한 줄 = 배치 불가 경계선
 const PLACING_MS = 60000;
 const MAX_TURNS = 10;          // 이만큼 돌면 매치 종료
-const MOVES_PER_TURN = 3;      // 한 차례에 쓸 수 있는 이동 횟수
+const MOVES_PER_TURN = 3;      // 한 차례에 쓸 수 있는 행위 횟수 (이동과 공격을 섞어 쓴다)
 // 한 칸 움직인 뒤 이만큼은 다음 이동을 받지 않는다.
 // 연속으로 밀어 넣으면 서버에 반영되기 전 상태로 다음 이동을 계산하게 되어 어긋날 수 있다.
 const MOVE_COOLDOWN_MS = 1000;
@@ -842,25 +842,24 @@ async function moveUnit(fromKey, dir) {
 function turnHandoverUpdates(battle, movesLeft) {
   if (movesLeft > 0) return {};
 
-  // 차례가 끝나면 그 쪽의 "이번 차례에 공격함" 표시를 지운다.
-  const cleared = { [`${battle.active}Attacked`]: null };
-
   if (battle.active === "host") {
-    return { ...cleared, active: "guest", movesLeft: MOVES_PER_TURN };
+    return { active: "guest", movesLeft: MOVES_PER_TURN };
   }
 
   const nextTurn = (battle.turn || 1) + 1;
   if (nextTurn > MAX_TURNS) {
     return { phase: "finished", endReason: "turns", finishedAt: serverTimestamp() };
   }
-  return { ...cleared, turn: nextTurn, active: "host", movesLeft: MOVES_PER_TURN };
+  return { turn: nextTurn, active: "host", movesLeft: MOVES_PER_TURN };
 }
 
 // 어느 방향으로도 못 움직이는 상황이면(둘러싸임) 차례가 영영 안 넘어가므로 넘겨준다.
 let stuckPassInFlight = false;
 async function passIfStuck(battle) {
   if (stuckPassInFlight || actionBusy()) return;
-  if (!isMyTurn(battle) || hasAnyMove(battle)) return;
+  if (!isMyTurn(battle)) return;
+  // 때릴 수 있는 적이 있으면 움직이지 못해도 할 일이 남아 있다.
+  if (hasAnyMove(battle) || hasAnyAttack(battle)) return;
   stuckPassInFlight = true;
   try {
     await update(ref(db, `rooms/${roomId}/battle`), {
@@ -868,7 +867,7 @@ async function passIfStuck(battle) {
       actedAt: serverTimestamp(),
       ...turnHandoverUpdates(battle, 0)
     });
-    pushNotice("움직일 수 있는 칸이 없어 차례를 넘깁니다.");
+    pushNotice("할 수 있는 행위가 없어 차례를 넘깁니다.");
   } catch (err) {
     console.error("차례 넘기기 실패:", err);
   } finally {
@@ -1182,7 +1181,7 @@ function renderTurnBar(battle) {
   turnBarEl.classList.toggle("mine", mine);
 
   const head = `턴 ${battle.turn || 1}/${MAX_TURNS} · ${mine ? "내 차례" : "상대 차례"}`;
-  const moves = `${mine ? "이동" : "상대 이동"} ${battle.movesLeft ?? MOVES_PER_TURN}회 남음`;
+  const moves = `${mine ? "행위" : "상대 행위"} ${battle.movesLeft ?? MOVES_PER_TURN}회 남음`;
 
   // 방치 감지를 꺼둔 동안에는 남은 시간을 세지 않고, 상대가 마칠 때까지 기다린다.
   if (!IDLE_TIMEOUT_ENABLED) {
@@ -1235,16 +1234,24 @@ function myUnitAt(battle, key) {
   return key ? mine[key] : null;
 }
 
-// 한 유닛은 한 차례에 한 번만 공격할 수 있다.
-function hasAttacked(battle, slot) {
-  const table = battle[`${myRole()}Attacked`] || {};
-  return !!table[slot];
-}
-
+// 행위 3회 안에서라면 같은 유닛이 몇 번이든 공격할 수 있다.
+// 막는 것은 "공격 수치가 없는 유닛"과 "사거리 안에 적이 없는 경우"뿐이다.
 function canAttackNow(battle) {
   const unit = myUnitAt(battle, activeTile(battle));
-  if (!unit || !attackOf(unit.file)) return false;
-  return !hasAttacked(battle, unit.slot ?? 0);
+  return !!(unit && attackOf(unit.file));
+}
+
+// 내 유닛 중 하나라도 지금 때릴 수 있는 적이 있는지 (차례를 넘길지 판단할 때 쓴다)
+function hasAnyAttack(battle) {
+  const mine = battle[battleField()] || {};
+  const opp = battle[oppField()] || {};
+  return Object.keys(mine).some((key) => {
+    const unit = mine[key];
+    if (!unit || !attackOf(unit.file)) return false;
+    return Object.keys(DIRECTIONS).some((dirKey) =>
+      attackTiles(key, dirKey, unit.file).some((t) => opp[t.key])
+    );
+  });
 }
 
 function chooseAttack() {
@@ -1267,11 +1274,6 @@ function chooseAttack() {
     pushNotice("이 유닛은 아직 공격할 수 없습니다.", { group: "attack", duration: 1800 });
     return;
   }
-  if (hasAttacked(battle, unit.slot ?? 0)) {
-    pushNotice("이 유닛은 이번 차례에 이미 공격했습니다.", { group: "attack", duration: 1800 });
-    return;
-  }
-
   actionMode = "attack";
   aimDir = null;
   renderBattle(currentRoom);
@@ -1308,44 +1310,30 @@ async function fireAttack() {
   const spec = attackOf(unit && unit.file);
   if (!unit || !spec) return;
 
-  const slot = unit.slot ?? 0;
-  if (hasAttacked(battle, slot)) {
-    pushNotice("이 유닛은 이번 차례에 이미 공격했습니다.", { group: "attack", duration: 1800 });
-    return;
-  }
-
-  // 001은 바로 앞의 적만 때린다. 사거리 안에 둘이 있어도 가까운 쪽 하나만 맞는다.
+  // 광역이면 사거리 안의 적을 모두, 단일이면 가장 가까운 적 하나만 때린다.
   const opp = battle[oppField()] || {};
   const line = attackTiles(from, aimDir, unit.file);
-  const hit = line.find((t) => opp[t.key]);
-  if (!hit) {
+  const inRange = line.filter((t) => opp[t.key]);
+  const targets = spec.splash ? inRange : inRange.slice(0, 1);
+  if (!targets.length) {
     pushNotice("범위 내에 적 유닛이 없습니다.", { group: "attack", duration: 1800 });
     return;
   }
 
   const oppRole = isHost ? "guest" : "host";
   const left = Math.max(0, (battle.movesLeft || 0) - 1);
-  const handover = turnHandoverUpdates(battle, left);
-
   const updates = { movesLeft: left, actedAt: serverTimestamp() };
 
-  // 이 공격으로 차례가 끝나면 "공격함" 표시를 통째로 지우게 되는데,
-  // 그때 개별 표시까지 같이 쓰면 한 번의 쓰기에 부모 경로와 자식 경로가 함께 들어간다.
-  // Firebase는 그런 쓰기를 통째로 거부하므로(이동 2회 뒤 공격이 실패하던 원인),
-  // 지우는 경우에는 개별 표시를 넣지 않는다.
-  if (!Object.prototype.hasOwnProperty.call(handover, `${myRole()}Attacked`)) {
-    updates[`${myRole()}Attacked/${slot}`] = true;
-  }
+  targets.forEach((hit) => {
+    const target = opp[hit.key];
+    const targetSlot = target.slot ?? 0;
+    const remaining = Math.max(0, hpOf(battle, oppRole, targetSlot, target.file) - damageAt(spec, hit.distance));
+    updates[`${oppRole}Hp/${targetSlot}`] = remaining;
+    // 체력이 0이 된 유닛은 판에서 내린다.
+    if (remaining === 0) updates[`${oppField()}/${hit.key}`] = null;
+  });
 
-  const target = opp[hit.key];
-  const targetSlot = target.slot ?? 0;
-  const damage = spec.damage[hit.distance - 1] || 0;
-  const remaining = Math.max(0, hpOf(battle, oppRole, targetSlot, target.file) - damage);
-  updates[`${oppRole}Hp/${targetSlot}`] = remaining;
-  // 체력이 0이 된 유닛은 판에서 내린다.
-  if (remaining === 0) updates[`${oppField()}/${hit.key}`] = null;
-
-  Object.assign(updates, handover);
+  Object.assign(updates, turnHandoverUpdates(battle, left));
 
   attackInFlight = true;
   playSelect();
