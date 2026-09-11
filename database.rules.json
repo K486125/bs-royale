@@ -100,6 +100,13 @@
             "$slot": { ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 10000 && $slot.matches(/^[0-2]$/)" }
           },
 
+          "hostAttacked": {
+            "$slot": { ".validate": "newData.isBoolean() && $slot.matches(/^[0-2]$/) && root.child('rooms').child($roomId).child('hostUid').val() === auth.uid" }
+          },
+          "guestAttacked": {
+            "$slot": { ".validate": "newData.isBoolean() && $slot.matches(/^[0-2]$/) && root.child('rooms').child($roomId).child('guestUid').val() === auth.uid" }
+          },
+
           "hostSelected": { ".validate": "newData.isString() && newData.val().matches(/^[0-6]_[0-6]$/) && root.child('rooms').child($roomId).child('hostUid').val() === auth.uid" },
           "guestSelected": { ".validate": "newData.isString() && newData.val().matches(/^[0-6]_[0-6]$/) && root.child('rooms').child($roomId).child('guestUid').val() === auth.uid" },
 
@@ -107,18 +114,16 @@
           "guestDone": { ".validate": "newData.isBoolean() && root.child('rooms').child($roomId).child('guestUid').val() === auth.uid" },
 
           "hostPlacements": {
-            ".validate": "root.child('rooms').child($roomId).child('hostUid').val() === auth.uid",
             "$tile": {
-              ".validate": "$tile.matches(/^[0-6]_[0-6]$/) && (root.child('rooms').child($roomId).child('battle').child('phase').val() !== 'placing' || $tile.matches(/^[4-6]_[0-6]$/))",
+              ".validate": "root.child('rooms').child($roomId).child('hostUid').val() === auth.uid && $tile.matches(/^[0-6]_[0-6]$/) && (root.child('rooms').child($roomId).child('battle').child('phase').val() !== 'placing' || $tile.matches(/^[4-6]_[0-6]$/))",
               "slot": { ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 2" },
               "file": { ".validate": "newData.isString() && newData.val().matches(/^[A-Za-z]+_[0-9]{3}_Icon[.]png$/)" },
               "$other": { ".validate": false }
             }
           },
           "guestPlacements": {
-            ".validate": "root.child('rooms').child($roomId).child('guestUid').val() === auth.uid",
             "$tile": {
-              ".validate": "$tile.matches(/^[0-6]_[0-6]$/) && (root.child('rooms').child($roomId).child('battle').child('phase').val() !== 'placing' || $tile.matches(/^[0-2]_[0-6]$/))",
+              ".validate": "root.child('rooms').child($roomId).child('guestUid').val() === auth.uid && $tile.matches(/^[0-6]_[0-6]$/) && (root.child('rooms').child($roomId).child('battle').child('phase').val() !== 'placing' || $tile.matches(/^[0-2]_[0-6]$/))",
               "slot": { ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 2" },
               "file": { ".validate": "newData.isString() && newData.val().matches(/^[A-Za-z]+_[0-9]{3}_Icon[.]png$/)" },
               "$other": { ".validate": false }

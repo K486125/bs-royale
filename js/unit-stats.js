@@ -15,6 +15,18 @@ const MAX_HP = {
 // 표에 없는 유닛이 들어와도 화면이 깨지지 않도록 기본값을 둔다.
 const FALLBACK_MAX_HP = 6000;
 
+// 공격 정보. 아직 001만 정해져 있다.
+//   range  : 자기 칸을 뺀 사거리 (2 -> 자기 칸 포함 3타일)
+//   damage : 거리별 피해. damage[0]은 한 칸 앞, damage[1]은 두 칸 앞.
+const ATTACK = {
+  "001": { range: 2, damage: [3000, 600] }
+};
+
+export function attackOf(file) {
+  if (!file) return null;
+  return ATTACK[unitNumber(file)] || null;
+}
+
 export function maxHp(file) {
   if (!file) return FALLBACK_MAX_HP;
   return MAX_HP[unitNumber(file)] || FALLBACK_MAX_HP;

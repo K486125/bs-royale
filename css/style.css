@@ -1287,6 +1287,21 @@ body.battle-page {
 .battle-map.playing .tile.mine-unit { border: 3px solid #57a8ff; }
 .battle-map.playing .tile.enemy-unit { border: 3px solid #ff5a5a; }
 
+/* 공격 사거리 표시. 격자 위에 덮개로 올려서 여러 칸을 하나의 네모로 감싼다. */
+.range-box {
+  pointer-events: none;
+  z-index: 1;
+  border: 2px dashed rgba(255, 255, 255, .95);
+  border-radius: 5px;
+  background: rgba(255, 255, 255, .18);
+}
+/* 조준한 방향은 더 진하게 */
+.range-box.aimed {
+  background: rgba(255, 255, 255, .34);
+  border-color: #fff;
+  box-shadow: 0 0 12px rgba(255, 255, 255, .6), inset 0 0 12px rgba(255, 255, 255, .35);
+}
+
 /* 상대가 지금 움직이려고 고른 유닛. 네 방향 화살표를 그 칸 안에 모아 보여준다. */
 .opp-active-mark {
   position: absolute;

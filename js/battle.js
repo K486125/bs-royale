@@ -1,6 +1,6 @@
 import { firebaseConfig } from "./firebase-config.js";
 import { unitFrameClass } from "./unit-colors.js";
-import { maxHp } from "./unit-stats.js";
+import { maxHp, attackOf } from "./unit-stats.js";
 import { playSelect } from "./sfx.js";
 import {
   newChatKey, watchChatData, isLastLeaveNotice, noticeEntry, trimRootUpdates
@@ -65,6 +65,7 @@ let turnInterval = null;
 let activeSlot = null;
 let sharedSelection = null; // 방 데이터에 적어둔 내 선택 (상대 화면에 표시하기 위함)
 let actionMode = null;     // 그 유닛으로 무엇을 할지: "move" | "attack"
+let aimDir = null;         // 공격 조준 방향 (방향키로 정하고 엔터로 쏜다)
 let matchFinished = false; // 정상 종료로 대기실에 돌아가는 중인지 (상대 이탈과 구분)
 
 const loadingOverlay = document.getElementById("loading-overlay");
@@ -217,6 +218,11 @@ function doneField() {
 function myAreaRows() {
   return isHost ? [4, 5, 6] : [0, 1, 2];
 }
+// 판 좌표의 행이 화면에서 몇 번째 줄인지 (게스트 화면은 세로로 뒤집혀 있다)
+function displayRow(r) {
+  return isHost ? r : ROWS - 1 - r;
+}
+
 function isMyAreaRow(r) {
   return isHost ? r > BOUNDARY_ROW : r < BOUNDARY_ROW;
 }
@@ -238,8 +244,7 @@ function buildMap() {
       }
 
       // 게스트는 자신의 영역이 항상 화면 아래쪽에 오도록 세로로만 뒤집어서 배치한다 (좌우는 그대로).
-      const displayRow = isHost ? r : (ROWS - 1 - r);
-      tile.style.gridRowStart = displayRow + 1;
+      tile.style.gridRowStart = displayRow(r) + 1;
       tile.style.gridColumnStart = c + 1;
 
       mapEl.appendChild(tile);
@@ -321,6 +326,7 @@ window.addEventListener("keydown", (e) => {
 
   // 한글 입력 상태에서도 같은 자리의 키가 먹도록 e.code를 함께 본다.
   if (e.code === "KeyW" || (e.key || "").toLowerCase() === "w") chooseMove();
+  else if (e.code === "KeyA" || (e.key || "").toLowerCase() === "a") chooseAttack();
 });
 
 // ---------- 자동 배치 (개발/테스트용) ----------
@@ -430,6 +436,7 @@ function renderMoveHints(battle) {
   });
 
   if (!battle || battle.phase !== "playing" || !isMyTurn(battle)) return;
+  if (actionMode === "attack") return; // 조준 중에는 사거리만 보여준다
   if (moveInFlight || moveOnCooldown()) return; // 아직 다음 이동을 받지 않는 동안
 
   const from = activeTile(battle);
@@ -441,6 +448,40 @@ function renderMoveHints(battle) {
     const { r, c } = parseTile(target);
     const tile = mapEl.querySelector(`.tile[data-row="${r}"][data-col="${c}"]`);
     if (tile) tile.classList.add("move-hint", ARROW_CLASS[key]);
+  });
+}
+
+// 사거리 표시: 자기 칸부터 사거리 끝까지를 하나의 직사각형으로 덮는다.
+// 맵이 격자라서, 격자 칸 범위를 지정한 덮개를 올리면 칸 사이 틈까지 이어진 하나의 네모가 된다.
+function rangeBox(fromKey, tiles, aimed) {
+  const cells = [parseTile(fromKey)].concat(tiles.map((t) => parseTile(t.key)));
+  const rows = cells.map((p) => displayRow(p.r));
+  const cols = cells.map((p) => p.c);
+
+  const box = document.createElement("div");
+  box.className = "range-box" + (aimed ? " aimed" : "");
+  box.style.gridRowStart = Math.min.apply(null, rows) + 1;
+  box.style.gridRowEnd = Math.max.apply(null, rows) + 2;
+  box.style.gridColumnStart = Math.min.apply(null, cols) + 1;
+  box.style.gridColumnEnd = Math.max.apply(null, cols) + 2;
+  return box;
+}
+
+function renderAttackRange(battle) {
+  mapEl.querySelectorAll(".range-box").forEach((el) => el.remove());
+
+  if (!battle || battle.phase !== "playing" || !isMyTurn(battle)) return;
+  if (actionMode === "move") return; // 이동 중에는 이동 화살표만 보여준다
+
+  const from = activeTile(battle);
+  const unit = myUnitAt(battle, from);
+  if (!unit || !attackOf(unit.file)) return;
+
+  // 아직 조준 전이면 네 방향을 모두, 조준했으면 그 방향만 진하게 보여준다.
+  const keys = aimDir ? [aimDir] : Object.keys(DIRECTIONS);
+  keys.forEach((key) => {
+    const tiles = attackTiles(from, key, unit.file);
+    if (tiles.length) mapEl.appendChild(rangeBox(from, tiles, aimDir === key));
   });
 }
 
@@ -670,6 +711,10 @@ function parseTile(key) {
 }
 
 // 누군가 서 있는 칸인지 (내 유닛이든 상대 유닛이든 막힌다)
+function oppField() {
+  return isHost ? "guestPlacements" : "hostPlacements";
+}
+
 function occupant(battle, key) {
   const mine = battle[battleField()] || {};
   const opp = battle[isHost ? "guestPlacements" : "hostPlacements"] || {};
@@ -766,15 +811,18 @@ async function moveUnit(fromKey, dir) {
 function turnHandoverUpdates(battle, movesLeft) {
   if (movesLeft > 0) return {};
 
+  // 차례가 끝나면 그 쪽의 "이번 차례에 공격함" 표시를 지운다.
+  const cleared = { [`${battle.active}Attacked`]: null };
+
   if (battle.active === "host") {
-    return { active: "guest", movesLeft: MOVES_PER_TURN };
+    return { ...cleared, active: "guest", movesLeft: MOVES_PER_TURN };
   }
 
   const nextTurn = (battle.turn || 1) + 1;
   if (nextTurn > MAX_TURNS) {
     return { phase: "finished", endReason: "turns", finishedAt: serverTimestamp() };
   }
-  return { turn: nextTurn, active: "host", movesLeft: MOVES_PER_TURN };
+  return { ...cleared, turn: nextTurn, active: "host", movesLeft: MOVES_PER_TURN };
 }
 
 // 어느 방향으로도 못 움직이는 상황이면(둘러싸임) 차례가 영영 안 넘어가므로 넘겨준다.
@@ -840,6 +888,7 @@ function selectUnitAt(key) {
   // 같은 유닛을 다시 누르면 해제, 다른 유닛을 고르면 이동 준비는 처음부터 다시.
   activeSlot = (activeSlot === slot) ? null : slot;
   actionMode = null;
+  aimDir = null;
   renderBattle(currentRoom);
 }
 
@@ -856,18 +905,29 @@ function chooseMove() {
     return;
   }
   actionMode = "move";
+  aimDir = null;
   renderBattle(currentRoom);
 }
 
 actMoveBtn.addEventListener("click", chooseMove);
+actAttackBtn.addEventListener("click", chooseAttack);
 
 // 방향키로 한 칸씩 움직인다.
 window.addEventListener("keydown", (e) => {
-  const dir = screenDirection(e.key);
-  if (!dir || e.repeat) return; // 누르고 있어도 한 번만 (한 칸씩 눌러서 움직인다)
+  if (e.repeat) return; // 누르고 있어도 한 번만 (한 칸씩 눌러서 움직인다)
 
   const battle = currentRoom && currentRoom.battle;
   if (!battle || battle.phase !== "playing") return;
+
+  // 엔터는 조준한 방향으로 실제 공격을 내보낸다.
+  if (e.key === "Enter") {
+    e.preventDefault();
+    fireAttack();
+    return;
+  }
+
+  const dirKey = DIRECTIONS[e.key] ? e.key : null;
+  if (!dirKey) return;
   e.preventDefault(); // 방향키로 화면이 스크롤되지 않도록
 
   if (!isMyTurn(battle)) {
@@ -876,14 +936,20 @@ window.addEventListener("keydown", (e) => {
   }
   const from = activeTile(battle);
   if (!from) {
-    pushNotice("움직일 유닛을 먼저 고르세요.", { group: "turn", duration: 1600 });
+    pushNotice("조작할 유닛을 먼저 고르세요.", { group: "turn", duration: 1600 });
+    return;
+  }
+
+  // 공격 중이면 방향키는 조준만 한다 (쏘는 것은 엔터).
+  if (actionMode === "attack") {
+    aimAt(dirKey);
     return;
   }
   if (actionMode !== "move") {
-    pushNotice("이동(W)을 먼저 선택하세요.", { group: "turn", duration: 1600 });
+    pushNotice("이동(W) 또는 공격(A)을 먼저 선택하세요.", { group: "turn", duration: 1600 });
     return;
   }
-  moveUnit(from, dir);
+  moveUnit(from, screenDirection(dirKey));
 });
 
 // ---------- 체력 ----------
@@ -936,8 +1002,9 @@ function renderTurnSidebar(myPlacements) {
   const canAct = activeSlot !== null && isMyTurn(battle);
   turnActionsEl.classList.toggle("hidden", !canAct);
   actMoveBtn.classList.toggle("on", actionMode === "move");
-  // 공격은 아직 만들지 않았다.
-  actAttackBtn.disabled = true;
+  actAttackBtn.classList.toggle("on", actionMode === "attack");
+  // 공격 수치가 정해진 유닛만, 그리고 이번 차례에 아직 공격하지 않았을 때만 누를 수 있다.
+  actAttackBtn.disabled = !canAttackNow(battle);
 }
 
 // 오른쪽 사이드바: 상대 유닛의 상태만 보여준다 (고를 수 없고 단축키도 없다).
@@ -1006,6 +1073,148 @@ function renderTurnBar(battle) {
   };
   tick();
   turnInterval = setInterval(tick, 200);
+}
+
+// ---------- 공격 ----------
+// 조준한 방향으로 사거리만큼의 칸 (판 밖은 빼고, 자기 칸은 포함하지 않는다).
+function attackTiles(fromKey, dirKey, file) {
+  const spec = attackOf(file);
+  const dir = screenDirection(dirKey);
+  if (!spec || !dir || !fromKey) return [];
+
+  const { r, c } = parseTile(fromKey);
+  const tiles = [];
+  for (let d = 1; d <= spec.range; d++) {
+    const nr = r + dir[0] * d;
+    const nc = c + dir[1] * d;
+    if (nr < 0 || nr >= ROWS || nc < 0 || nc >= COLS) break;
+    tiles.push({ key: tileKey(nr, nc), distance: d });
+  }
+  return tiles;
+}
+
+function myUnitAt(battle, key) {
+  const mine = battle[battleField()] || {};
+  return key ? mine[key] : null;
+}
+
+// 한 유닛은 한 차례에 한 번만 공격할 수 있다.
+function hasAttacked(battle, slot) {
+  const table = battle[`${myRole()}Attacked`] || {};
+  return !!table[slot];
+}
+
+function canAttackNow(battle) {
+  const unit = myUnitAt(battle, activeTile(battle));
+  if (!unit || !attackOf(unit.file)) return false;
+  return !hasAttacked(battle, unit.slot ?? 0);
+}
+
+function chooseAttack() {
+  const battle = currentRoom && currentRoom.battle;
+  if (!battle || battle.phase !== "playing") return;
+
+  if (!isMyTurn(battle)) {
+    pushNotice("상대 차례입니다.", { group: "turn", duration: 1400 });
+    return;
+  }
+  if (activeSlot === null) {
+    pushNotice("공격할 유닛을 먼저 고르세요.", { group: "turn", duration: 1600 });
+    return;
+  }
+
+  const unit = myUnitAt(battle, activeTile(battle));
+  if (!unit || !attackOf(unit.file)) {
+    pushNotice("이 유닛은 아직 공격할 수 없습니다.", { group: "attack", duration: 1800 });
+    return;
+  }
+  if (hasAttacked(battle, unit.slot ?? 0)) {
+    pushNotice("이 유닛은 이번 차례에 이미 공격했습니다.", { group: "attack", duration: 1800 });
+    return;
+  }
+
+  actionMode = "attack";
+  aimDir = null;
+  renderBattle(currentRoom);
+}
+
+// 방향키는 조준만 한다. 실제 공격은 엔터.
+function aimAt(dirKey) {
+  const battle = currentRoom && currentRoom.battle;
+  const from = activeTile(battle);
+  const unit = myUnitAt(battle, from);
+  if (!unit) return;
+
+  if (!attackTiles(from, dirKey, unit.file).length) {
+    pushNotice("공격할 수 없는 방향입니다.", { group: "attack", duration: 1800 });
+    return;
+  }
+  aimDir = dirKey;
+  renderBattle(currentRoom);
+}
+
+let attackInFlight = false;
+async function fireAttack() {
+  const battle = currentRoom && currentRoom.battle;
+  if (!battle || battle.phase !== "playing" || attackInFlight) return;
+  if (actionMode !== "attack" || !isMyTurn(battle)) return;
+
+  if (!aimDir) {
+    pushNotice("공격 방향을 먼저 정하세요.", { group: "attack", duration: 1600 });
+    return;
+  }
+
+  const from = activeTile(battle);
+  const unit = myUnitAt(battle, from);
+  const spec = attackOf(unit && unit.file);
+  if (!unit || !spec) return;
+
+  const slot = unit.slot ?? 0;
+  if (hasAttacked(battle, slot)) {
+    pushNotice("이 유닛은 이번 차례에 이미 공격했습니다.", { group: "attack", duration: 1800 });
+    return;
+  }
+
+  const opp = battle[oppField()] || {};
+  const hits = attackTiles(from, aimDir, unit.file).filter((t) => opp[t.key]);
+  if (!hits.length) {
+    pushNotice("범위 내에 적 유닛이 없습니다.", { group: "attack", duration: 1800 });
+    return;
+  }
+
+  const oppRole = isHost ? "guest" : "host";
+  const left = Math.max(0, (battle.movesLeft || 0) - 1);
+  const updates = {
+    [`${myRole()}Attacked/${slot}`]: true,
+    movesLeft: left,
+    actedAt: serverTimestamp()
+  };
+
+  hits.forEach((hit) => {
+    const target = opp[hit.key];
+    const targetSlot = target.slot ?? 0;
+    const damage = spec.damage[hit.distance - 1] || 0;
+    const remaining = Math.max(0, hpOf(battle, oppRole, targetSlot, target.file) - damage);
+    updates[`${oppRole}Hp/${targetSlot}`] = remaining;
+    // 체력이 0이 된 유닛은 판에서 내린다.
+    if (remaining === 0) updates[`${oppField()}/${hit.key}`] = null;
+  });
+
+  Object.assign(updates, turnHandoverUpdates(battle, left));
+
+  attackInFlight = true;
+  playSelect();
+  try {
+    await update(ref(db, `rooms/${roomId}/battle`), updates);
+    actionMode = null;
+    aimDir = null;
+    moveReadyAt = Date.now() + MOVE_COOLDOWN_MS;
+  } catch (err) {
+    console.error("공격 실패:", err);
+    pushNotice("공격하지 못했습니다.");
+  } finally {
+    attackInFlight = false;
+  }
 }
 
 // ---------- 매치 종료 -> 대기실 복귀 ----------
@@ -1158,18 +1367,21 @@ function renderBattle(room) {
     if (!isMyTurn(battle)) {
       activeSlot = null;
       actionMode = null;
+      aimDir = null;
     }
     renderTurnSidebar(myPlacements);
     shareSelection(activeTile(battle)); // 상대 화면에 "이 유닛을 움직이는 중"을 보여준다
   } else {
     activeSlot = null;
     actionMode = null;
+    aimDir = null;
     renderSidebar(myPlacements);
   }
 
   renderEnemySidebar(battle, oppPlacements);
   renderMapTiles(myPlacements, oppPlacements);
   renderMoveHints(battle);
+  renderAttackRange(battle);
   renderTimer(battle);
   renderCountdown(battle);
   renderTurnBar(battle);
