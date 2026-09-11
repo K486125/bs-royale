@@ -58,7 +58,9 @@ const loadingStartedAt = Date.now();
 let timerInterval = null;
 let countdownInterval = null;
 let turnInterval = null;
-let selectedTile = null;   // 조작하려고 고른 유닛이 서 있는 칸 ("행_열")
+// 조작 중인 유닛은 칸이 아니라 번호(0,1,2)로 기억한다.
+// 칸으로 기억하면 한 칸 움직이는 순간 그 칸이 비어서 선택이 풀려버린다.
+let activeSlot = null;
 let sharedSelection = null; // 방 데이터에 적어둔 내 선택 (상대 화면에 표시하기 위함)
 let actionMode = null;     // 그 유닛으로 무엇을 할지: "move" | "attack"
 let matchFinished = false; // 정상 종료로 대기실에 돌아가는 중인지 (상대 이탈과 구분)
@@ -386,13 +388,15 @@ function renderMapTiles(myPlacements, oppPlacements) {
     ? battle[isHost ? "guestSelected" : "hostSelected"]
     : null;
 
+  const selected = activeTile(battle);
+
   mapEl.querySelectorAll(".tile").forEach((tile) => {
     const key = `${tile.dataset.row}_${tile.dataset.col}`;
     const mine = myPlacements[key];
     const placement = mine || oppPlacements[key];
 
     tile.classList.toggle("occupied", !!placement);
-    tile.classList.toggle("unit-selected", !!selectedTile && key === selectedTile);
+    tile.classList.toggle("unit-selected", !!selected && key === selected);
     tile.classList.toggle("mine-unit", !!mine);
     tile.classList.toggle("enemy-unit", !!placement && !mine);
 
@@ -421,11 +425,14 @@ function renderMoveHints(battle) {
     tile.classList.remove("move-hint", "move-up", "move-down", "move-left", "move-right");
   });
 
-  if (!battle || battle.phase !== "playing" || !selectedTile || !isMyTurn(battle)) return;
+  if (!battle || battle.phase !== "playing" || !isMyTurn(battle)) return;
   if (moveInFlight || moveOnCooldown()) return; // 아직 다음 이동을 받지 않는 동안
 
+  const from = activeTile(battle);
+  if (!from) return;
+
   Object.keys(ARROW_CLASS).forEach((key) => {
-    const target = stepTarget(battle, selectedTile, screenDirection(key));
+    const target = stepTarget(battle, from, screenDirection(key));
     if (!target) return; // 판 밖이거나 누가 서 있는 방향에는 화살표를 그리지 않는다
     const { r, c } = parseTile(target);
     const tile = mapEl.querySelector(`.tile[data-row="${r}"][data-col="${c}"]`);
@@ -634,6 +641,13 @@ async function startPlaying() {
   }
 }
 
+// 지금 조작 중인 유닛이 서 있는 칸. 움직이면 이 값만 따라 바뀐다.
+function activeTile(battle) {
+  if (activeSlot === null || !battle) return null;
+  const mine = battle[battleField()] || {};
+  return Object.keys(mine).find((k) => mine[k] && mine[k].slot === activeSlot) || null;
+}
+
 function tileKey(r, c) { return `${r}_${c}`; }
 function parseTile(key) {
   const [r, c] = key.split("_").map(Number);
@@ -714,9 +728,9 @@ async function moveUnit(fromKey, dir) {
   };
   Object.assign(updates, turnHandoverUpdates(battle, left));
 
+  // 선택은 번호로 잡고 있으므로, 칸이 바뀌어도 같은 유닛을 계속 조작한다.
+  // 이동 준비(W)도 그대로 유지되어 방향키만 다시 누르면 이어서 움직인다.
   moveInFlight = true;
-  selectedTile = toKey; // 움직인 유닛을 계속 잡고 있는다 (연속 이동이 편하도록)
-  shareSelection(toKey);
   playSelect();
   try {
     await update(ref(db, `rooms/${roomId}/battle`), updates);
@@ -807,14 +821,10 @@ function selectUnitAt(key) {
   const mine = battle[battleField()] || {};
   if (!mine[key]) return;
 
-  if (selectedTile === key) {
-    selectedTile = null; // 같은 유닛을 다시 누르면 선택 해제
-    actionMode = null;
-  } else {
-    selectedTile = key;
-    actionMode = null;
-  }
-  shareSelection(selectedTile);
+  const slot = mine[key].slot ?? 0;
+  // 같은 유닛을 다시 누르면 해제, 다른 유닛을 고르면 이동 준비는 처음부터 다시.
+  activeSlot = (activeSlot === slot) ? null : slot;
+  actionMode = null;
   renderBattle(currentRoom);
 }
 
@@ -826,7 +836,7 @@ function chooseMove() {
     pushNotice("상대 차례입니다.", { group: "turn", duration: 1400 });
     return;
   }
-  if (!selectedTile) {
+  if (activeSlot === null) {
     pushNotice("움직일 유닛을 먼저 고르세요.", { group: "turn", duration: 1600 });
     return;
   }
@@ -849,7 +859,8 @@ window.addEventListener("keydown", (e) => {
     pushNotice("상대 차례입니다.", { group: "turn", duration: 1400 });
     return;
   }
-  if (!selectedTile) {
+  const from = activeTile(battle);
+  if (!from) {
     pushNotice("움직일 유닛을 먼저 고르세요.", { group: "turn", duration: 1600 });
     return;
   }
@@ -857,7 +868,7 @@ window.addEventListener("keydown", (e) => {
     pushNotice("이동(W)을 먼저 선택하세요.", { group: "turn", duration: 1600 });
     return;
   }
-  moveUnit(selectedTile, dir);
+  moveUnit(from, dir);
 });
 
 // ---------- 진행 중 화면 ----------
@@ -869,7 +880,7 @@ function renderTurnSidebar(myPlacements) {
     .sort((a, b) => (a[1].slot || 0) - (b[1].slot || 0))
     .forEach(([key, unit]) => {
       const card = document.createElement("div");
-      card.className = "unit-slot-card" + (selectedTile === key ? " selected" : "");
+      card.className = "unit-slot-card" + (unit.slot === activeSlot ? " selected" : "");
       card.innerHTML = `
         <span class="key-badge">${(unit.slot ?? 0) + 1}</span>
         <div class="unit-tile ${unitFrameClass(unit.file)}">
@@ -880,7 +891,7 @@ function renderTurnSidebar(myPlacements) {
       sidebarEl.appendChild(card);
     });
 
-  const canAct = !!selectedTile && isMyTurn(battle);
+  const canAct = activeSlot !== null && isMyTurn(battle);
   turnActionsEl.classList.toggle("hidden", !canAct);
   actMoveBtn.classList.toggle("on", actionMode === "move");
   // 공격은 아직 만들지 않았다.
@@ -1077,15 +1088,15 @@ function renderBattle(room) {
   sidebarBoxEl.classList.toggle("playing", battle.phase === "playing");
 
   if (battle.phase === "playing") {
-    // 내 차례가 아니거나, 잡고 있던 유닛이 그 칸에 없으면(이동해서 칸이 바뀜) 선택을 푼다.
-    if (!isMyTurn(battle) || (selectedTile && !myPlacements[selectedTile])) {
-      selectedTile = null;
+    // 내 차례가 끝나면 선택과 이동 준비를 모두 푼다.
+    if (!isMyTurn(battle)) {
+      activeSlot = null;
       actionMode = null;
-      shareSelection(null);
     }
     renderTurnSidebar(myPlacements);
+    shareSelection(activeTile(battle)); // 상대 화면에 "이 유닛을 움직이는 중"을 보여준다
   } else {
-    selectedTile = null;
+    activeSlot = null;
     actionMode = null;
     renderSidebar(myPlacements);
   }
