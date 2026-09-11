@@ -973,7 +973,8 @@ body.battle-page {
   height: 100%;
   border-radius: 4px 2px 2px 4px;
   background: linear-gradient(180deg, #8cf58c 0%, #46cf55 42%, #22993a 100%);
-  transition: width .3s ease;
+  /* 줄어드는 모습이 보이도록 (색이 바뀌는 것도 같이 이어진다) */
+  transition: width .45s cubic-bezier(.2, .8, .3, 1), background .45s ease;
 }
 /* 깎인 정도에 따라 노란색 -> 주황색 -> 빨간색 */
 .hp-bar.warn .hp-fill {
@@ -1286,6 +1287,35 @@ body.battle-page {
 
 .battle-map.playing .tile.mine-unit { border: 3px solid #57a8ff; }
 .battle-map.playing .tile.enemy-unit { border: 3px solid #ff5a5a; }
+
+/* 피해 숫자. 판에 놓인 유닛 바로 위에서 떠올랐다 사라진다.
+   내가 넣은 피해는 흰색, 내가 받은 피해는 빨간색. 글자 모양은 알림과 같다. */
+.damage-pop {
+  pointer-events: none;
+  z-index: 5;
+  align-self: start;
+  justify-self: center;
+  margin-top: -20px;
+  font-size: 21px;
+  font-weight: 900;
+  color: #fff;
+  white-space: nowrap;
+  text-shadow:
+    -2px -2px 0 #000, 2px -2px 0 #000,
+    -2px  2px 0 #000, 2px  2px 0 #000,
+    0 2px 0 #000, 0 4px 0 rgba(0,0,0,.6),
+    0 8px 12px rgba(0,0,0,.75);
+  animation: damage-rise 1.2s ease-out forwards;
+}
+.damage-pop.taken { color: #ff4d4d; }
+
+@keyframes damage-rise {
+  0%   { opacity: 0; transform: translateY(8px) scale(.85); }
+  16%  { opacity: 1; transform: translateY(0) scale(1.12); }
+  30%  { opacity: 1; transform: translateY(-2px) scale(1); }
+  72%  { opacity: 1; transform: translateY(-18px) scale(1); }
+  100% { opacity: 0; transform: translateY(-34px) scale(.96); }
+}
 
 /* 공격 사거리 표시. 격자 위에 덮개로 올려서 여러 칸을 하나의 네모로 감싼다. */
 .range-box {

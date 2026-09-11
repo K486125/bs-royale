@@ -31,6 +31,7 @@ const TURN_IDLE_MS = 20000;    // 이 시간 동안 아무 것도 안 하면 매
 // 개발 중에는 방치 감지를 꺼둔다. 상대가 이동을 마칠 때까지 그냥 기다린다.
 // 다시 켜려면 이 값만 true로 바꾸면 된다.
 const IDLE_TIMEOUT_ENABLED = false;
+const PLAY_INTRO_MS = 900;     // 카운트다운 뒤 전투 화면으로 넘어가기 전 짧은 로딩
 const LOADING_MIN_MS = 1400; // 로딩 화면 최소 노출 시간 (버벅거림 방지용 체감 대기)
 const MATCH_END_MS = 1800; // "매치 종료" 문구를 보여주는 시간
 const LEAVE_NOTICE_MS = 1100; // 상대 퇴장 알림을 보여주는 시간 (이후 로딩 화면)
@@ -1007,14 +1008,94 @@ function hpClass(ratio) {
 }
 
 // 숫자는 남은 체력만 보여준다 (1000 -> 670). 최대치는 적지 않는다.
-function hpBarHtml(hp, file) {
-  const ratio = Math.max(0, Math.min(1, hp / maxHp(file)));
+// 바는 다시 그릴 때마다 새로 만들어지므로, 이전 값에서 시작해 두었다가
+// 화면에 붙은 뒤 새 값으로 옮겨야 줄어드는 움직임이 보인다.
+function hpBarHtml(hp, file, fromHp) {
+  const max = maxHp(file);
+  const ratio = Math.max(0, Math.min(1, hp / max));
+  const start = fromHp === undefined ? ratio : Math.max(0, Math.min(1, fromHp / max));
   return `
     <div class="hp-bar ${hpClass(ratio)}">
-      <div class="hp-fill" style="width: ${ratio * 100}%"></div>
+      <div class="hp-fill" style="width: ${start * 100}%" data-target="${ratio * 100}"></div>
       <div class="hp-text">${Math.round(hp)}</div>
     </div>
   `;
+}
+
+// 붙여둔 목표 너비로 옮긴다. 사이 값을 확정시킨 뒤에 바꿔야 전환이 재생된다.
+function animateHpBars(root) {
+  root.querySelectorAll(".hp-fill[data-target]").forEach((fill) => {
+    const target = fill.dataset.target;
+    delete fill.dataset.target;
+    void fill.offsetWidth;
+    fill.style.width = `${target}%`;
+  });
+}
+
+// ---------- 피해 표시 ----------
+// 방 데이터가 올 때마다 직전 체력과 비교해서, 줄어든 유닛 위에 숫자를 띄운다.
+// 쓰러져서 판에서 사라진 유닛도 직전 위치를 기억해 두었다가 그 자리에 띄운다.
+let prevHp = null;   // { host: {slot: 체력}, guest: {...} }
+let prevTile = { host: {}, guest: {} };
+
+function hpSnapshot(battle) {
+  const snap = { host: {}, guest: {} };
+  ["host", "guest"].forEach((role) => {
+    const placements = battle[`${role}Placements`] || {};
+    Object.values(placements).forEach((unit) => {
+      if (!unit) return;
+      const slot = unit.slot ?? 0;
+      snap[role][slot] = hpOf(battle, role, slot, unit.file);
+    });
+  });
+  return snap;
+}
+
+function tileSnapshot(battle) {
+  const snap = { host: {}, guest: {} };
+  ["host", "guest"].forEach((role) => {
+    const placements = battle[`${role}Placements`] || {};
+    Object.keys(placements).forEach((key) => {
+      const unit = placements[key];
+      if (unit) snap[role][unit.slot ?? 0] = key;
+    });
+  });
+  return snap;
+}
+
+// 줄어든 곳을 찾아 숫자를 띄운다. 처음 들어왔을 때는 비교 대상이 없으므로 띄우지 않는다.
+function showDamage(battle) {
+  const now = hpSnapshot(battle);
+  const tiles = tileSnapshot(battle);
+
+  if (prevHp) {
+    ["host", "guest"].forEach((role) => {
+      Object.keys(prevHp[role]).forEach((slot) => {
+        const before = prevHp[role][slot];
+        const after = now[role][slot] !== undefined ? now[role][slot] : 0;
+        const damage = Math.round(before - after);
+        if (damage <= 0) return;
+
+        const key = tiles[role][slot] || prevTile[role][slot];
+        if (key) spawnDamagePop(key, damage, role !== myRole());
+      });
+    });
+  }
+
+  prevHp = now;
+  prevTile = tiles;
+}
+
+// mine=true 이면 내가 넣은 피해(흰색), false 이면 내가 받은 피해(빨간색).
+function spawnDamagePop(key, damage, mine) {
+  const { r, c } = parseTile(key);
+  const pop = document.createElement("div");
+  pop.className = "damage-pop" + (mine ? "" : " taken");
+  pop.textContent = `-${damage}`;
+  pop.style.gridRowStart = displayRow(r) + 1;
+  pop.style.gridColumnStart = c + 1;
+  mapEl.appendChild(pop);
+  setTimeout(() => pop.remove(), 1200);
 }
 
 // ---------- 진행 중 화면 ----------
@@ -1029,7 +1110,7 @@ function renderTurnSidebar(myPlacements) {
       card.className = "unit-slot-card with-hp" + (unit.slot === activeSlot ? " selected" : "");
       card.innerHTML = `
         <span class="key-badge">${(unit.slot ?? 0) + 1}</span>
-        ${hpBarHtml(hpOf(battle, myRole(), unit.slot ?? 0, unit.file), unit.file)}
+        ${hpBarHtml(hpOf(battle, myRole(), unit.slot ?? 0, unit.file), unit.file, prevHp && prevHp[myRole()][unit.slot ?? 0])}
         <div class="unit-tile ${unitFrameClass(unit.file)}">
           <img src="${AVATAR_PATH}${unit.file}" alt="">
         </div>
@@ -1037,6 +1118,8 @@ function renderTurnSidebar(myPlacements) {
       card.addEventListener("click", () => selectUnitAt(key));
       sidebarEl.appendChild(card);
     });
+
+  animateHpBars(sidebarEl);
 
   const canAct = activeSlot !== null && isMyTurn(battle);
   turnActionsEl.classList.toggle("hidden", !canAct);
@@ -1061,13 +1144,15 @@ function renderEnemySidebar(battle, oppPlacements) {
       const card = document.createElement("div");
       card.className = "unit-slot-card";
       card.innerHTML = `
-        ${hpBarHtml(hpOf(battle, oppRole, unit.slot ?? 0, unit.file), unit.file)}
+        ${hpBarHtml(hpOf(battle, oppRole, unit.slot ?? 0, unit.file), unit.file, prevHp && prevHp[oppRole][unit.slot ?? 0])}
         <div class="unit-tile ${unitFrameClass(unit.file)}">
           <img src="${AVATAR_PATH}${unit.file}" alt="">
         </div>
       `;
       enemySlotsEl.appendChild(card);
     });
+
+  animateHpBars(enemySlotsEl);
 }
 
 // 위쪽 띠: 몇 턴째인지, 누구 차례인지, 이동이 몇 번 남았는지, 방치까지 몇 초 남았는지.
@@ -1320,11 +1405,31 @@ async function clearFinishedBattle() {
 }
 
 // ---------- 로딩 -> 배치 화면 전환 (최소 노출 시간 보장) ----------
+let playIntroStartedAt = 0;
+let playIntroDone = false;
+
 function renderPhaseVisibility(battle) {
   if (battle.phase === "loading") {
     loadingOverlay.classList.remove("hidden");
     battleMain.classList.add("hidden");
     return;
+  }
+
+  // 카운트다운이 끝나고 전투가 시작될 때 잠깐 로딩을 보여준 뒤 판을 드러낸다.
+  if (battle.phase === "playing" && !playIntroDone) {
+    if (!playIntroStartedAt) {
+      playIntroStartedAt = Date.now();
+      loadingOverlay.querySelector(".loading-text").textContent = "전투 시작...";
+      setTimeout(() => {
+        if (currentRoom && currentRoom.battle) renderPhaseVisibility(currentRoom.battle);
+      }, PLAY_INTRO_MS);
+    }
+    if (Date.now() - playIntroStartedAt < PLAY_INTRO_MS) {
+      loadingOverlay.classList.remove("hidden");
+      battleMain.classList.add("hidden");
+      return;
+    }
+    playIntroDone = true;
   }
 
   const elapsed = Date.now() - loadingStartedAt;
@@ -1421,11 +1526,13 @@ function renderBattle(room) {
     activeSlot = null;
     actionMode = null;
     aimDir = null;
+    prevHp = null;
     renderSidebar(myPlacements);
   }
 
   renderEnemySidebar(battle, oppPlacements);
   renderMapTiles(myPlacements, oppPlacements);
+  if (battle.phase === "playing") showDamage(battle);
   renderMoveHints(battle);
   renderAttackRange(battle);
   renderTimer(battle);
