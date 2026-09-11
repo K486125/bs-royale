@@ -342,6 +342,7 @@ function renderAutoPlaceBtn() {
 }
 
 autoPlaceBtn.addEventListener("click", () => {
+  if (autoPlaceInFlight) return; // 놓는 중에는 다시 받지 않는다
   autoPlace = !autoPlace;
   localStorage.setItem(AUTO_PLACE_KEY, autoPlace ? "1" : "0");
   renderAutoPlaceBtn();
@@ -435,9 +436,10 @@ function renderMoveHints(battle) {
     tile.classList.remove("move-hint", "move-up", "move-down", "move-left", "move-right");
   });
 
+  // 이동을 고른 뒤에만 화살표를 보여준다 (고르기만 했을 때는 아무것도 표시하지 않는다).
   if (!battle || battle.phase !== "playing" || !isMyTurn(battle)) return;
-  if (actionMode === "attack") return; // 조준 중에는 사거리만 보여준다
-  if (moveInFlight || moveOnCooldown()) return; // 아직 다음 이동을 받지 않는 동안
+  if (actionMode !== "move") return;
+  if (moveInFlight || onActionCooldown()) return; // 아직 다음 행동을 받지 않는 동안
 
   const from = activeTile(battle);
   if (!from) return;
@@ -470,8 +472,9 @@ function rangeBox(fromKey, tiles, aimed) {
 function renderAttackRange(battle) {
   mapEl.querySelectorAll(".range-box").forEach((el) => el.remove());
 
+  // 공격을 고른 뒤에만 사거리를 보여준다.
   if (!battle || battle.phase !== "playing" || !isMyTurn(battle)) return;
-  if (actionMode === "move") return; // 이동 중에는 이동 화살표만 보여준다
+  if (actionMode !== "attack") return;
 
   const from = activeTile(battle);
   const unit = myUnitAt(battle, from);
@@ -516,7 +519,8 @@ function onTileClick(e) {
 
 function onTileRightClick(e) {
   e.preventDefault();
-  if (myDone) return;
+  const battle = currentRoom && currentRoom.battle;
+  if (myDone || !battle || battle.phase !== "placing") return;
 
   const tile = e.target.closest(".tile");
   if (!tile) return;
@@ -757,15 +761,31 @@ function hasAnyMove(battle) {
 
 // 한 칸 이동. 남은 횟수가 0이 되면 차례가 넘어간다.
 let moveInFlight = false;
-let moveReadyAt = 0; // 이 시각 전에는 다음 이동을 받지 않는다 (경과 시간만 보므로 PC 시계와 무관)
+let attackInFlight = false;
+// 이 시각 전에는 다음 행동(이동/공격)을 받지 않는다.
+// 경과 시간만 보므로 PC 시계가 어긋나 있어도 정확하다.
+let actionReadyAt = 0;
 
-function moveOnCooldown() {
-  return Date.now() < moveReadyAt;
+function onActionCooldown() {
+  return Date.now() < actionReadyAt;
+}
+
+// 쓰기가 오가는 중이면 새 행동을 받지 않는다 (연타로 같은 행동이 두 번 나가는 것을 막는다).
+function actionBusy() {
+  return moveInFlight || attackInFlight || onActionCooldown();
+}
+
+// 한 번 행동한 뒤 잠시 쉬고, 쉬는 시간이 끝나면 화면을 다시 그려 표시를 되살린다.
+function startActionCooldown() {
+  actionReadyAt = Date.now() + MOVE_COOLDOWN_MS;
+  setTimeout(() => {
+    if (currentRoom && currentRoom.battle) renderBattle(currentRoom);
+  }, MOVE_COOLDOWN_MS);
 }
 
 async function moveUnit(fromKey, dir) {
   const battle = currentRoom && currentRoom.battle;
-  if (!battle || moveInFlight || moveOnCooldown() || !isMyTurn(battle)) return;
+  if (!battle || actionBusy() || !isMyTurn(battle)) return;
 
   const mine = battle[battleField()] || {};
   const unit = mine[fromKey];
@@ -794,11 +814,8 @@ async function moveUnit(fromKey, dir) {
   playSelect();
   try {
     await update(ref(db, `rooms/${roomId}/battle`), updates);
-    moveReadyAt = Date.now() + MOVE_COOLDOWN_MS;
     // 쉬는 동안에는 화살표를 감췄다가, 끝나면 다시 그려서 "이제 움직일 수 있다"를 보여준다.
-    setTimeout(() => {
-      if (currentRoom && currentRoom.battle) renderBattle(currentRoom);
-    }, MOVE_COOLDOWN_MS);
+    startActionCooldown();
   } catch (err) {
     console.error("이동 실패:", err);
     pushNotice("이동하지 못했습니다.");
@@ -828,7 +845,8 @@ function turnHandoverUpdates(battle, movesLeft) {
 // 어느 방향으로도 못 움직이는 상황이면(둘러싸임) 차례가 영영 안 넘어가므로 넘겨준다.
 let stuckPassInFlight = false;
 async function passIfStuck(battle) {
-  if (stuckPassInFlight || !isMyTurn(battle) || hasAnyMove(battle)) return;
+  if (stuckPassInFlight || actionBusy()) return;
+  if (!isMyTurn(battle) || hasAnyMove(battle)) return;
   stuckPassInFlight = true;
   try {
     await update(ref(db, `rooms/${roomId}/battle`), {
@@ -874,9 +892,19 @@ function shareSelection(key) {
 
 // 조작할 유닛을 고른다. 고르기만 해서는 아무 일도 일어나지 않고,
 // 이동인지 공격인지 한 번 더 선택해야 한다.
+// 빠르게 여러 번 누르면 선택이 켜졌다 꺼졌다 하며 방 데이터에 쓰기가 몰린다.
+// 아주 짧은 간격의 반복은 무시한다.
+const SELECT_GAP_MS = 160;
+let lastSelectAt = 0;
+
 function selectUnitAt(key) {
   const battle = currentRoom && currentRoom.battle;
   if (!battle || battle.phase !== "playing") return;
+  if (moveInFlight || attackInFlight) return;
+
+  const now = Date.now();
+  if (now - lastSelectAt < SELECT_GAP_MS) return;
+  lastSelectAt = now;
   if (!isMyTurn(battle)) {
     pushNotice("상대 차례입니다.", { group: "turn", duration: 1400 });
     return;
@@ -895,6 +923,8 @@ function selectUnitAt(key) {
 function chooseMove() {
   const battle = currentRoom && currentRoom.battle;
   if (!battle || battle.phase !== "playing") return;
+  if (actionMode === "move") return;      // 이미 고른 상태면 다시 그리지 않는다
+  if (moveInFlight || attackInFlight) return; // 쓰기가 오가는 중에는 바꾸지 않는다
 
   if (!isMyTurn(battle)) {
     pushNotice("상대 차례입니다.", { group: "turn", duration: 1400 });
@@ -1113,6 +1143,8 @@ function canAttackNow(battle) {
 function chooseAttack() {
   const battle = currentRoom && currentRoom.battle;
   if (!battle || battle.phase !== "playing") return;
+  if (actionMode === "attack") return;
+  if (moveInFlight || attackInFlight) return;
 
   if (!isMyTurn(battle)) {
     pushNotice("상대 차례입니다.", { group: "turn", duration: 1400 });
@@ -1140,6 +1172,7 @@ function chooseAttack() {
 
 // 방향키는 조준만 한다. 실제 공격은 엔터.
 function aimAt(dirKey) {
+  if (aimDir === dirKey) return; // 같은 방향을 다시 눌러도 다시 그리지 않는다
   const battle = currentRoom && currentRoom.battle;
   const from = activeTile(battle);
   const unit = myUnitAt(battle, from);
@@ -1153,10 +1186,9 @@ function aimAt(dirKey) {
   renderBattle(currentRoom);
 }
 
-let attackInFlight = false;
 async function fireAttack() {
   const battle = currentRoom && currentRoom.battle;
-  if (!battle || battle.phase !== "playing" || attackInFlight) return;
+  if (!battle || battle.phase !== "playing" || actionBusy()) return;
   if (actionMode !== "attack" || !isMyTurn(battle)) return;
 
   if (!aimDir) {
@@ -1208,7 +1240,7 @@ async function fireAttack() {
     await update(ref(db, `rooms/${roomId}/battle`), updates);
     actionMode = null;
     aimDir = null;
-    moveReadyAt = Date.now() + MOVE_COOLDOWN_MS;
+    startActionCooldown();
   } catch (err) {
     console.error("공격 실패:", err);
     pushNotice("공격하지 못했습니다.");

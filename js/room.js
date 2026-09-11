@@ -174,7 +174,15 @@ function watchRoom() {
   });
 
   leaveBtn.addEventListener("click", () => leaveRoom(roomRef));
+  // 연타하면 준비가 켜졌다 꺼졌다 하며 쓰기가 몰린다. 짧은 간격의 반복은 무시한다.
+  const READY_GAP_MS = 400;
+  let lastReadyAt = 0;
+
   readyBtn.addEventListener("click", () => {
+    const now = Date.now();
+    if (now - lastReadyAt < READY_GAP_MS) return;
+    lastReadyAt = now;
+
     const myReady = currentIsHost ? currentRoom.hostReady : currentRoom.guestReady;
     const myUnits = currentIsHost ? currentRoom.hostUnits : currentRoom.guestUnits;
     if (!myReady && !hasAllUnits(myUnits)) {
@@ -434,8 +442,20 @@ function renderRequestBar(room, isHost) {
     </div>
     <div class="req-gauge"><div class="req-gauge-fill"></div></div>
   `;
-  requestBarEl.querySelector(".accept-req").addEventListener("click", () => acceptRequest(firstUid, req));
-  requestBarEl.querySelector(".decline-req").addEventListener("click", () => declineRequest(firstUid));
+  const acceptBtn = requestBarEl.querySelector(".accept-req");
+  const declineBtn = requestBarEl.querySelector(".decline-req");
+  const lockButtons = () => { acceptBtn.disabled = true; declineBtn.disabled = true; };
+
+  acceptBtn.addEventListener("click", () => {
+    if (acceptBtn.disabled) return;
+    lockButtons();
+    acceptRequest(firstUid, req);
+  });
+  declineBtn.addEventListener("click", () => {
+    if (declineBtn.disabled) return;
+    lockButtons();
+    declineRequest(firstUid);
+  });
 
   // 남은 시간만큼 게이지를 오른쪽에서 왼쪽으로 줄인다.
   const fill = requestBarEl.querySelector(".req-gauge-fill");
