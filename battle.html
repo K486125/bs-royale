@@ -24,6 +24,15 @@
     <div id="unit-slots" class="unit-slots"></div>
 
     <!-- 개발/테스트용: 켜두면 배치 단계에서 유닛 3개가 알아서 무작위로 놓인다 -->
+    <!-- 에너지: 세 유닛이 함께 쓰는 하나뿐인 값 -->
+    <div id="my-energy" class="energy-ring hidden">
+      <svg viewBox="0 0 100 100" aria-hidden="true">
+        <circle class="ring-track" cx="50" cy="50" r="41"></circle>
+        <circle class="ring-fill" cx="50" cy="50" r="41"></circle>
+      </svg>
+      <span class="ring-value">100</span>
+    </div>
+
     <div class="auto-place">
       <span class="auto-place-label">자동 배치</span>
       <button id="auto-place" class="auto-toggle" type="button" aria-pressed="false" aria-label="자동 배치">
@@ -35,6 +44,13 @@
   <!-- 상대 유닛 상태 (체력만 보여준다) -->
   <aside id="enemy-sidebar" class="unit-sidebar enemy playing hidden">
     <div id="enemy-slots" class="unit-slots"></div>
+    <div id="enemy-energy" class="energy-ring hidden">
+      <svg viewBox="0 0 100 100" aria-hidden="true">
+        <circle class="ring-track" cx="50" cy="50" r="41"></circle>
+        <circle class="ring-fill" cx="50" cy="50" r="41"></circle>
+      </svg>
+      <span class="ring-value">100</span>
+    </div>
   </aside>
 
   <div class="battle-center">

@@ -82,6 +82,8 @@ const countdownNumberEl = document.getElementById("countdown-number");
 const autoPlaceBtn = document.getElementById("auto-place");
 const enemySidebarEl = document.getElementById("enemy-sidebar");
 const enemySlotsEl = document.getElementById("enemy-slots");
+const myEnergyEl = document.getElementById("my-energy");
+const enemyEnergyEl = document.getElementById("enemy-energy");
 const mapEl = document.getElementById("battle-map");
 const timerEl = document.getElementById("placement-timer");
 const matchEndOverlay = document.getElementById("match-end-overlay");
@@ -713,8 +715,8 @@ function renderCountdown(battle) {
 // 그래서 에너지가 차는 동안에는 아무 것도 주고받지 않는다.
 const myRole = () => (isHost ? "host" : "guest");
 
-function energyOf(battle, role, slot) {
-  const cell = ((battle && battle[`${role}Energy`]) || {})[slot];
+function energyOf(battle, role) {
+  const cell = battle && battle[`${role}Energy`];
   if (!cell || typeof cell.v !== "number") return MAX_ENERGY;
   const at = typeof cell.at === "number" ? cell.at : 0;
   if (!at || !serverTimeReady()) return Math.min(MAX_ENERGY, Math.max(0, cell.v));
@@ -723,15 +725,16 @@ function energyOf(battle, role, slot) {
 }
 
 // 행동에 쓴 만큼 깎고, 거기서부터 다시 차오르게 새 기준점을 적는다.
-function spendEnergy(battle, slot, cost) {
-  const left = Math.max(0, energyOf(battle, myRole(), slot) - cost);
-  return { [`${myRole()}Energy/${slot}`]: { v: Math.round(left), at: serverTimestamp() } };
+// 에너지는 세 유닛이 함께 쓰는 하나뿐인 값이라, 어느 유닛이 써도 같은 곳에서 빠진다.
+function spendEnergy(battle, cost) {
+  const left = Math.max(0, energyOf(battle, myRole()) - cost);
+  return { [`${myRole()}Energy`]: { v: Math.round(left), at: serverTimestamp() } };
 }
 
 // 에너지가 모자라면 알리고 막는다.
 function affordable(battle, unit, action) {
   const cost = costOf(unit.file, action);
-  const have = energyOf(battle, myRole(), unit.slot ?? 0);
+  const have = energyOf(battle, myRole());
   if (have + 0.5 >= cost) return true;
   const name = action === "move" ? "이동" : action === "attack" ? "공격" : "재장전";
   pushNotice(`에너지가 모자랍니다.
@@ -756,11 +759,7 @@ async function startPlaying() {
       return table;
     };
     // 양쪽 모두 에너지가 가득 찬 채로 시작한다.
-    const fullEnergy = () => {
-      const table = {};
-      for (let slot = 0; slot < 3; slot++) table[slot] = { v: MAX_ENERGY, at: serverTimestamp() };
-      return table;
-    };
+    const fullEnergy = () => ({ v: MAX_ENERGY, at: serverTimestamp() });
     await update(ref(db, `rooms/${roomId}/battle`), {
       phase: "playing",
       startedAt: serverTimestamp(),
@@ -876,7 +875,7 @@ async function moveUnit(fromKey, dir) {
     [`${field}/${fromKey}`]: null,
     [`${field}/${toKey}`]: { slot: unit.slot, file: unit.file },
     actedAt: serverTimestamp(),
-    ...spendEnergy(battle, unit.slot ?? 0, costOf(unit.file, "move"))
+    ...spendEnergy(battle, costOf(unit.file, "move"))
   };
 
   // 선택은 번호로 잡고 있으므로, 칸이 바뀌어도 같은 유닛을 계속 조작한다.
@@ -1171,7 +1170,6 @@ function renderTurnSidebar(myPlacements) {
           <img src="${AVATAR_PATH}${unit.file}" alt="">
         </div>
         ${ammoRowHtml(ammoOf(battle, myRole(), unit.slot ?? 0))}
-        ${energyBarHtml(myRole(), unit.slot ?? 0)}
       `;
       card.addEventListener("click", () => selectUnitAt(key));
       sidebarEl.appendChild(card);
@@ -1191,35 +1189,35 @@ function renderTurnSidebar(myPlacements) {
   actMoveBtn.textContent = unit ? `이동 (W) ${costOf(unit.file, "move")}` : "이동 (W)";
   actAttackBtn.textContent = unit ? `공격 (A) ${costOf(unit.file, "attack")}` : "공격 (A)";
   actReloadBtn.textContent = unit ? `재장전 (S) ${costOf(unit.file, "reload")}` : "재장전 (S)";
-  actMoveBtn.disabled = !unit || energyOf(battle, myRole(), unit.slot ?? 0) + 0.5 < costOf(unit.file, "move");
+  actMoveBtn.disabled = !unit || energyOf(battle, myRole()) + 0.5 < costOf(unit.file, "move");
   actReloadBtn.disabled = !canReloadNow(battle);
 }
 
-// 에너지 막대. 값은 시간이 지나면 저절로 오르므로, 만들 때는 틀만 두고
-// 화면 갱신(tickEnergy)에서 길이와 숫자만 바꾼다.
-function energyBarHtml(role, slot) {
-  return `<div class="energy-bar" data-role="${role}" data-slot="${slot}">
-    <i class="energy-fill"></i><span class="energy-text"></span>
-  </div>`;
+// 에너지 원형 게이지. 한 번 만들어 둔 것을 계속 쓰고, 여기서는 채워진 길이와
+// 숫자만 고친다 (다시 그리지 않으므로 행동할 때 깜빡이지 않는다).
+const RING_LENGTH = 2 * Math.PI * 41;   // svg 원 둘레
+function paintRing(box, value) {
+  if (!box) return;
+  const fill = box.querySelector(".ring-fill");
+  const ratio = Math.max(0, Math.min(1, value / MAX_ENERGY));
+  fill.style.strokeDasharray = RING_LENGTH;
+  fill.style.strokeDashoffset = RING_LENGTH * (1 - ratio);
+  box.querySelector(".ring-value").textContent = Math.floor(value);
+  box.classList.toggle("full", value >= MAX_ENERGY - 0.5);
 }
 
-// 200ms마다 에너지 막대만 손본다 (카드를 다시 만들지 않아 깜빡이지 않는다).
+// 200ms마다 게이지 값만 손본다.
 function tickEnergy() {
   const battle = currentRoom && currentRoom.battle;
   if (!battle || battle.phase !== "playing") return;
 
-  document.querySelectorAll(".energy-bar").forEach((bar) => {
-    const value = energyOf(battle, bar.dataset.role, Number(bar.dataset.slot));
-    const pct = Math.max(0, Math.min(100, (value / MAX_ENERGY) * 100));
-    bar.querySelector(".energy-fill").style.width = pct + "%";
-    bar.querySelector(".energy-text").textContent = Math.floor(value);
-    bar.classList.toggle("full", value >= MAX_ENERGY - 0.5);
-  });
+  paintRing(myEnergyEl, energyOf(battle, myRole()));
+  paintRing(enemyEnergyEl, energyOf(battle, isHost ? "guest" : "host"));
 
   // 에너지가 차면서 쓸 수 있게 된 버튼을 열어준다.
   const unit = myUnitAt(battle, activeTile(battle));
   if (unit) {
-    actMoveBtn.disabled = energyOf(battle, myRole(), unit.slot ?? 0) + 0.5 < costOf(unit.file, "move");
+    actMoveBtn.disabled = energyOf(battle, myRole()) + 0.5 < costOf(unit.file, "move");
     actAttackBtn.disabled = !canAttackNow(battle);
     actReloadBtn.disabled = !canReloadNow(battle);
   }
@@ -1244,7 +1242,6 @@ function renderEnemySidebar(battle, oppPlacements) {
         <div class="unit-tile ${unitFrameClass(unit.file)}">
           <img src="${AVATAR_PATH}${unit.file}" alt="">
         </div>
-        ${energyBarHtml(oppRole, unit.slot ?? 0)}
       `;
       enemySlotsEl.appendChild(card);
     });
@@ -1323,7 +1320,7 @@ function canAttackNow(battle) {
   const unit = myUnitAt(battle, activeTile(battle));
   if (!unit || !attackOf(unit.file)) return false;
   if (ammoOf(battle, myRole(), unit.slot ?? 0) <= 0) return false;
-  return energyOf(battle, myRole(), unit.slot ?? 0) + 0.5 >= costOf(unit.file, "attack");
+  return energyOf(battle, myRole()) + 0.5 >= costOf(unit.file, "attack");
 }
 
 // 탄창이 덜 찼고 에너지가 재장전 값만큼 있을 때 재장전할 수 있다.
@@ -1332,7 +1329,7 @@ function canReloadNow(battle) {
   if (!unit) return false;
   const slot = unit.slot ?? 0;
   if (ammoOf(battle, myRole(), slot) >= MAX_AMMO) return false;
-  return energyOf(battle, myRole(), slot) + 0.5 >= costOf(unit.file, "reload");
+  return energyOf(battle, myRole()) + 0.5 >= costOf(unit.file, "reload");
 }
 
 // 내 유닛 중 하나라도 지금 때릴 수 있는 적이 있는지 (차례를 넘길지 판단할 때 쓴다)
@@ -1428,7 +1425,7 @@ async function fireAttack() {
   const updates = {
     actedAt: serverTimestamp(),
     [`${myRole()}Ammo/${slot}`]: ammo - 1,
-    ...spendEnergy(battle, slot, costOf(unit.file, "attack"))
+    ...spendEnergy(battle, costOf(unit.file, "attack"))
   };
 
   const hurt = (key, amount) => {
@@ -1562,7 +1559,7 @@ async function doReload() {
   const updates = {
     actedAt: serverTimestamp(),
     [`${myRole()}Ammo/${slot}`]: Math.min(MAX_AMMO, ammo + 1),
-    ...spendEnergy(battle, slot, costOf(unit.file, "reload"))
+    ...spendEnergy(battle, costOf(unit.file, "reload"))
   };
 
   reloadInFlight = true;
@@ -1749,6 +1746,8 @@ function renderBattle(room) {
   playOpponentPlacementSfx(oppPlacements);
 
   sidebarBoxEl.classList.toggle("playing", battle.phase === "playing");
+  myEnergyEl.classList.toggle("hidden", battle.phase !== "playing");
+  enemyEnergyEl.classList.toggle("hidden", battle.phase !== "playing");
 
   if (battle.phase === "playing") {
     // 고른 유닛이 쓰러졌으면 선택을 푼다.

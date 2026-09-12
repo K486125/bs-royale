@@ -973,45 +973,49 @@ body.battle-page {
   box-shadow: 0 0 4px rgba(255, 200, 80, .55);
 }
 
-/* ---------- 에너지 바 ---------- */
-/* 유닛 카드 아래. 초당 10씩 100까지 차오르고, 행동하면 그만큼 줄어든다.
-   값은 시간으로 셈해서 0.2초마다 길이만 고쳐 그린다. */
-.energy-bar {
+/* ---------- 에너지 게이지 ---------- */
+/* 사이드바 맨 아래. 세 유닛이 함께 쓰는 값이라 사람마다 하나뿐이다.
+   두꺼운 원형 테두리가 채워지고 가운데에 숫자가 들어간다.
+   한 번 만들어 두고 길이와 숫자만 고치므로 행동할 때 다시 그려지지 않는다. */
+.energy-ring {
   position: relative;
+  width: 74px;
+  height: 74px;
+  margin: 10px auto 2px;
+  flex: none;
+}
+.energy-ring svg {
   width: 100%;
-  height: 13px;
-  margin-top: 5px;
-  border-radius: 5px;
-  border: 2px solid #0c1024;
-  background: #1e2547;
-  overflow: hidden;
-  box-shadow: inset 0 2px 3px rgba(0,0,0,.55);
-}
-.energy-fill {
-  position: absolute;
-  left: 0;
-  top: 0;
   height: 100%;
-  width: 0;
-  border-radius: 3px 1px 1px 3px;
-  background: linear-gradient(180deg, #b7f0ff 0%, #4ec3f7 45%, #1f7fd0 100%);
-  transition: width .18s linear;
+  transform: rotate(-90deg);   /* 12시 방향에서 시작 */
 }
-/* 가득 차면 한 번 더 눈에 띄게 */
-.energy-bar.full .energy-fill {
-  background: linear-gradient(180deg, #e6fbff 0%, #7ee0ff 45%, #2aa3e6 100%);
-  box-shadow: 0 0 8px rgba(120, 220, 255, .75);
+.energy-ring circle {
+  fill: none;
+  stroke-width: 13;
+  stroke-linecap: round;
 }
-.energy-text {
+.energy-ring .ring-track {
+  stroke: #1b2245;
+  filter: drop-shadow(0 1px 2px rgba(0,0,0,.6));
+}
+.energy-ring .ring-fill {
+  stroke: #4ec3f7;
+  transition: stroke-dashoffset .18s linear, stroke .3s ease;
+}
+.energy-ring.full .ring-fill {
+  stroke: #8ce6ff;
+  filter: drop-shadow(0 0 5px rgba(130, 225, 255, .85));
+}
+.energy-ring .ring-value {
   position: absolute;
   inset: 0;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 10px;
-  font-weight: 800;
+  font-size: 21px;
+  font-weight: 900;
   color: #eaf6ff;
-  text-shadow: 0 1px 2px rgba(0,0,0,.9), 0 0 3px rgba(0,0,0,.8);
+  text-shadow: 0 2px 3px rgba(0,0,0,.85);
 }
 
 /* ---------- 체력 바 ---------- */
