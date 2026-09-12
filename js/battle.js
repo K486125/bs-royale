@@ -27,6 +27,7 @@ const MAX_AMMO = 3;            // 유닛마다 가지는 탄창 수
 // 한 칸 움직인 뒤 이만큼은 다음 이동을 받지 않는다.
 // 연속으로 밀어 넣으면 서버에 반영되기 전 상태로 다음 이동을 계산하게 되어 어긋날 수 있다.
 const MOVE_COOLDOWN_MS = 1000;
+const BOUNCE_DELAY_MS = 1000;   // 005의 튕김이 옆 적에게 닿기까지
 
 const TURN_IDLE_MS = 20000;    // 이 시간 동안 아무 것도 안 하면 매치가 끊긴다
 // 개발 중에는 방치 감지를 꺼둔다. 상대가 이동을 마칠 때까지 그냥 기다린다.
@@ -1427,13 +1428,16 @@ async function fireAttack() {
 
   // 005처럼 튕기는 공격: 맞은 칸을 둘러싼 여덟 칸(대각선 포함) 중 적이 선 자리로 한 번 더 간다.
   // 옆에 적이 여럿이면 그중 무작위, 하나뿐이면 그 적, 아무도 없으면 튕길 곳이 없어 끝난다.
+  let bounceTo = null;
   if (spec.bounce && targets.length) {
     const hitKey = targets[0].key;
     const around = neighborTiles(hitKey).filter((key) => opp[key]);
     const pick = around.length > 1
       ? around[Math.floor(Math.random() * around.length)]
       : around[0];
-    if (pick) hurt(pick, Math.round(damageAt(spec, targets[0].distance) * spec.bounce));
+    if (pick) {
+      bounceTo = { key: pick, damage: Math.round(damageAt(spec, targets[0].distance) * spec.bounce) };
+    }
   }
 
   Object.assign(updates, turnHandoverUpdates(battle, left));
@@ -1444,6 +1448,8 @@ async function fireAttack() {
     await update(ref(db, `rooms/${roomId}/battle`), updates);
     actionMode = null;
     aimDir = null;
+    // 005의 튕김은 곧바로 들어가지 않고 1초 뒤에 옆 적에게 닿는다.
+    if (bounceTo) setTimeout(() => applyLateDamage(bounceTo.key, bounceTo.damage), BOUNCE_DELAY_MS);
     // 006처럼 자리에 남는 공격: 맞은 칸을 정해진 횟수만큼 계속 태운다.
     if (spec.dot) scheduleDot(targets[0].key, spec.dot);
     attackFlash = { fromKey: from, tiles: line, until: Date.now() + ATTACK_FLASH_MS };
@@ -1464,11 +1470,13 @@ async function fireAttack() {
 // 그 사이에 적이 자리를 비우면 더 이상 맞지 않는다.
 function scheduleDot(key, dot) {
   for (let i = 1; i <= dot.ticks; i++) {
-    setTimeout(() => applyDotTick(key, dot.damage), i * dot.everyMs);
+    setTimeout(() => applyLateDamage(key, dot.damage), i * dot.everyMs);
   }
 }
 
-async function applyDotTick(key, damage) {
+// 시간이 지난 뒤에 들어가는 피해 (지속 피해 한 틱, 005의 튕김).
+// 그 사이 자리를 뜨거나 쓰러졌으면 그냥 지나간다.
+async function applyLateDamage(key, damage) {
   const battle = currentRoom && currentRoom.battle;
   if (!battle || battle.phase !== "playing") return;
 
@@ -1486,7 +1494,7 @@ async function applyDotTick(key, damage) {
   try {
     await update(ref(db, `rooms/${roomId}/battle`), updates);
   } catch (err) {
-    console.error("지속 피해 실패:", err);
+    console.error("나중 피해 실패:", err);
   }
 }
 
