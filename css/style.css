@@ -1082,24 +1082,20 @@ body.battle-page {
 }
 
 /* 진행 중 위쪽 띠: 몇 턴째인지, 누구 차례인지, 남은 이동과 시간 */
+/* 위쪽 띠: 플레이 시간만 보여준다. 숫자 폭을 고정해 초가 바뀌어도 흔들리지 않는다. */
 .turn-bar {
-  padding: 10px 20px;
+  padding: 7px 18px;
   border-radius: 12px;
   background: rgba(16, 21, 48, .85);
   border: 3px solid #10142c;
-  color: #dfe4ff;
-  font-size: 17px;
+  color: #e8ecff;
+  font-size: 19px;
   font-weight: 800;
-  letter-spacing: .3px;
+  letter-spacing: 1px;
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1;
   text-shadow: 0 2px 0 rgba(0,0,0,.6);
   box-shadow: 0 5px 0 #10142c, 0 10px 18px rgba(0,0,0,.4);
-}
-/* 내 차례일 때만 눈에 띄게 */
-.turn-bar.mine {
-  background: rgba(38, 30, 6, .9);
-  border-color: #8a6a00;
-  color: #ffdf7d;
-  box-shadow: 0 5px 0 #8a6a00, 0 10px 18px rgba(0,0,0,.45);
 }
 
 /* 고른 유닛으로 할 행동 고르기. 판 바로 아래에 가로로 나란히 둔다. */

@@ -1336,8 +1336,7 @@ function renderEnemySidebar(battle, oppPlacements) {
   animateHpBars(enemySlotsEl);
 }
 
-// 위쪽 띠: 실시간 전투라 차례가 없다. 경과 시간과 남은 유닛 수를 보여주고,
-// 같은 타이머로 에너지 막대도 함께 갱신한다.
+// 위쪽 띠: 이제 플레이 시간만 보여준다 (00:00). 같은 타이머로 게이지도 함께 그린다.
 function renderTurnBar(battle) {
   clearInterval(turnInterval);
 
@@ -1346,17 +1345,15 @@ function renderTurnBar(battle) {
     return;
   }
   turnBarEl.classList.remove("hidden");
-  turnBarEl.classList.add("mine");
 
   const tick = () => {
-    const mineLeft = Object.keys(battle[battleField()] || {}).length;
-    const oppLeft = Object.keys(battle[oppField()] || {}).length;
-    let head = "실시간 전투";
+    let sec = 0;
     if (serverTimeReady() && battle.startedAt) {
-      const sec = Math.max(0, Math.floor((serverNow() - battle.startedAt) / 1000));
-      head += ` · ${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, "0")}`;
+      sec = Math.max(0, Math.floor((serverNow() - battle.startedAt) / 1000));
     }
-    turnBarEl.textContent = `${head} · 내 유닛 ${mineLeft} · 상대 ${oppLeft}`;
+    const mm = String(Math.floor(sec / 60)).padStart(2, "0");
+    const ss = String(sec % 60).padStart(2, "0");
+    turnBarEl.textContent = `${mm}:${ss}`;
     tickEnergy();
   };
   tick();
