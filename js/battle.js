@@ -424,7 +424,7 @@ function renderMapTiles(myPlacements, oppPlacements) {
       ? `<div class="tile-unit-frame ${unitFrameClass(placement.file)}"><img src="${AVATAR_PATH}${placement.file}" alt=""></div>`
       : "";
 
-    // 타고 있는 자리에는 불꽃을 그린다. 서 있는 유닛 그림 위에서 흔들린다.
+    // 불도 자리에 남는다. 그 칸에 선 유닛이 틱마다 타고, 자리를 비우면 더 맞지 않는다.
     if (burning.has(key)) {
       const fire = document.createElement("div");
       fire.className = "burn-fx";
@@ -432,9 +432,10 @@ function renderMapTiles(myPlacements, oppPlacements) {
       tile.appendChild(fire);
     }
 
-    // 곧 튕겨 맞을 적에게는 느낌표를 띄워, 피해가 닿기 전에 알아볼 수 있게 한다.
+    // 튕김 예고는 유닛이 아니라 그 칸에 남는다. 피해도 1초 뒤 그 칸에 선 유닛이 받으므로,
+    // 나중에 실시간으로 바꾸면 그 사이 칸에서 벗어나 피할 수 있다.
     // 표시는 방 데이터에 있으므로 쏜 쪽과 맞는 쪽 모두에게 같이 보인다.
-    if (placement && key === bounceMarkKey(battle)) {
+    if (key === bounceMarkKey(battle)) {
       const warn = document.createElement("div");
       warn.className = "bounce-warn";
       warn.textContent = "!";
