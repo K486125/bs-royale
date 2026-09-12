@@ -70,7 +70,6 @@ let activeSlot = null;
 let sharedSelection = null; // 방 데이터에 적어둔 내 선택 (상대 화면에 표시하기 위함)
 let actionMode = null;     // 그 유닛으로 무엇을 할지: "move" | "attack"
 let aimDir = null;         // 공격 조준 방향 (방향키로 정하고 엔터로 쏜다)
-let bounceWarn = null;     // 곧 튕겨 맞을 적 (그 칸에 ! 를 띄운다)
 let attackFlash = null;    // 방금 쏜 사거리 (바로 지우지 않고 잠깐 남겨 사라지는 모습을 보여준다)
 let matchFinished = false; // 정상 종료로 대기실에 돌아가는 중인지 (상대 이탈과 구분)
 
@@ -424,7 +423,8 @@ function renderMapTiles(myPlacements, oppPlacements) {
       : "";
 
     // 곧 튕겨 맞을 적에게는 느낌표를 띄워, 피해가 닿기 전에 알아볼 수 있게 한다.
-    if (placement && bounceWarn && key === bounceWarn.key && Date.now() < bounceWarn.until) {
+    // 표시는 방 데이터에 있으므로 쏜 쪽과 맞는 쪽 모두에게 같이 보인다.
+    if (placement && key === bounceMarkKey(battle)) {
       const warn = document.createElement("div");
       warn.className = "bounce-warn";
       warn.textContent = "!";
@@ -439,6 +439,16 @@ function renderMapTiles(myPlacements, oppPlacements) {
       tile.appendChild(mark);
     }
   });
+}
+
+// 튕김 예고 표시. 쏜 쪽이 적어두고 1초 뒤 지우는데,
+// 도중에 창이 닫혀 남는 일이 없도록 시간이 너무 지난 표시는 무시한다.
+function bounceMarkKey(battle) {
+  const mark = battle && battle.bounceMark;
+  if (!mark || !mark.key) return null;
+  const at = mark.at || 0;
+  if (at && serverNow() - at > BOUNCE_DELAY_MS + 1500) return null;
+  return mark.key;
 }
 
 // 고른 유닛 주변에 "갈 수 있는 방향"만 화살표로 표시한다.
@@ -1438,6 +1448,7 @@ async function fireAttack() {
   // 005처럼 튕기는 공격: 맞은 칸을 둘러싼 여덟 칸(대각선 포함) 중 적이 선 자리로 한 번 더 간다.
   // 옆에 적이 여럿이면 그중 무작위, 하나뿐이면 그 적, 아무도 없으면 튕길 곳이 없어 끝난다.
   let bounceTo = null;
+  updates.bounceMark = null;   // 지난 표시는 지우고 시작한다
   if (spec.bounce && targets.length) {
     const hitKey = targets[0].key;
     const around = neighborTiles(hitKey).filter((key) => opp[key]);
@@ -1446,6 +1457,8 @@ async function fireAttack() {
       : around[0];
     if (pick) {
       bounceTo = { key: pick, damage: Math.round(damageAt(spec, targets[0].distance) * spec.bounce) };
+      // 첫 피해와 같은 순간에 표시가 뜨도록 같은 쓰기에 담는다.
+      updates.bounceMark = { key: pick, at: serverTimestamp() };
     }
   }
 
@@ -1460,12 +1473,7 @@ async function fireAttack() {
     // 005의 튕김은 곧바로 들어가지 않고 1초 뒤에 옆 적에게 닿는다.
     // 그동안 그 적 위에 느낌표를 띄워 어디로 튀는지 보여준다.
     if (bounceTo) {
-      bounceWarn = { key: bounceTo.key, until: Date.now() + BOUNCE_DELAY_MS };
-      setTimeout(() => {
-        applyLateDamage(bounceTo.key, bounceTo.damage);
-        bounceWarn = null;
-        if (currentRoom && currentRoom.battle) renderBattle(currentRoom);
-      }, BOUNCE_DELAY_MS);
+      setTimeout(() => applyLateDamage(bounceTo.key, bounceTo.damage, { bounceMark: null }), BOUNCE_DELAY_MS);
     }
     // 006처럼 자리에 남는 공격: 맞은 칸을 정해진 횟수만큼 계속 태운다.
     if (spec.dot) scheduleDot(targets[0].key, spec.dot);
@@ -1493,19 +1501,23 @@ function scheduleDot(key, dot) {
 
 // 시간이 지난 뒤에 들어가는 피해 (지속 피해 한 틱, 005의 튕김).
 // 그 사이 자리를 뜨거나 쓰러졌으면 그냥 지나간다.
-async function applyLateDamage(key, damage) {
+async function applyLateDamage(key, damage, extra) {
   const battle = currentRoom && currentRoom.battle;
   if (!battle || battle.phase !== "playing") return;
 
   const opp = battle[oppField()] || {};
   const target = opp[key];
-  if (!target) return;
+  // 적이 자리를 떴거나 이미 쓰러졌어도, 남겨둔 표시는 지워야 한다.
+  if (!target) {
+    if (extra) update(ref(db, `rooms/${roomId}/battle`), extra).catch(() => {});
+    return;
+  }
 
   const oppRole = isHost ? "guest" : "host";
   const slot = target.slot ?? 0;
   const remaining = Math.max(0, hpOf(battle, oppRole, slot, target.file) - damage);
 
-  const updates = { [`${oppRole}Hp/${slot}`]: remaining };
+  const updates = { ...(extra || {}), [`${oppRole}Hp/${slot}`]: remaining };
   if (remaining === 0) updates[`${oppField()}/${key}`] = null;
 
   try {

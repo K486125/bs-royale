@@ -116,6 +116,13 @@
           "hostSelected": { ".validate": "newData.isString() && newData.val().matches(/^[0-6]_[0-6]$/) && root.child('rooms').child($roomId).child('hostUid').val() === auth.uid" },
           "guestSelected": { ".validate": "newData.isString() && newData.val().matches(/^[0-6]_[0-6]$/) && root.child('rooms').child($roomId).child('guestUid').val() === auth.uid" },
 
+          "bounceMark": {
+            ".validate": "newData.hasChildren(['key', 'at'])",
+            "key": { ".validate": "newData.isString() && newData.val().matches(/^[0-6]_[0-6]$/)" },
+            "at": { ".validate": "newData.isNumber()" },
+            "$other": { ".validate": false }
+          },
+
           "hostDone": { ".validate": "newData.isBoolean() && root.child('rooms').child($roomId).child('hostUid').val() === auth.uid" },
           "guestDone": { ".validate": "newData.isBoolean() && root.child('rooms').child($roomId).child('guestUid').val() === auth.uid" },
 
