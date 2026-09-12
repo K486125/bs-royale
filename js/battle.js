@@ -28,6 +28,7 @@ const MAX_AMMO = 3;            // 유닛마다 가지는 탄창 수
 // 연속으로 밀어 넣으면 서버에 반영되기 전 상태로 다음 이동을 계산하게 되어 어긋날 수 있다.
 const MOVE_COOLDOWN_MS = 1000;
 const BOUNCE_DELAY_MS = 1000;   // 005의 튕김이 옆 적에게 닿기까지
+const BURN_VISIBLE_MS = 3400;   // 006이 붙인 불이 남아 있는 시간
 
 const TURN_IDLE_MS = 20000;    // 이 시간 동안 아무 것도 안 하면 매치가 끊긴다
 // 개발 중에는 방치 감지를 꺼둔다. 상대가 이동을 마칠 때까지 그냥 기다린다.
@@ -407,6 +408,7 @@ function renderMapTiles(myPlacements, oppPlacements) {
     : null;
 
   const selected = activeTile(battle);
+  const burning = new Set(burningKeys(battle));
 
   mapEl.querySelectorAll(".tile").forEach((tile) => {
     const key = `${tile.dataset.row}_${tile.dataset.col}`;
@@ -421,6 +423,14 @@ function renderMapTiles(myPlacements, oppPlacements) {
     tile.innerHTML = placement
       ? `<div class="tile-unit-frame ${unitFrameClass(placement.file)}"><img src="${AVATAR_PATH}${placement.file}" alt=""></div>`
       : "";
+
+    // 타고 있는 자리에는 불꽃을 그린다. 서 있는 유닛 그림 위에서 흔들린다.
+    if (burning.has(key)) {
+      const fire = document.createElement("div");
+      fire.className = "burn-fx";
+      fire.innerHTML = `<i class="fl fl-a"></i><i class="fl fl-b"></i><i class="fl fl-c"></i><i class="ember"></i>`;
+      tile.appendChild(fire);
+    }
 
     // 곧 튕겨 맞을 적에게는 느낌표를 띄워, 피해가 닿기 전에 알아볼 수 있게 한다.
     // 표시는 방 데이터에 있으므로 쏜 쪽과 맞는 쪽 모두에게 같이 보인다.
@@ -1449,6 +1459,8 @@ async function fireAttack() {
   // 옆에 적이 여럿이면 그중 무작위, 하나뿐이면 그 적, 아무도 없으면 튕길 곳이 없어 끝난다.
   let bounceTo = null;
   updates.bounceMark = null;   // 지난 표시는 지우고 시작한다
+  // 006처럼 자리를 태우는 공격은 그 칸을 불붙은 자리로 적어둔다 (양쪽 화면에 불이 보인다)
+  if (spec.dot && targets.length) updates[`burns/${targets[0].key}`] = serverTimestamp();
   if (spec.bounce && targets.length) {
     const hitKey = targets[0].key;
     const around = neighborTiles(hitKey).filter((key) => opp[key]);
@@ -1495,8 +1507,20 @@ async function fireAttack() {
 // 그 사이에 적이 자리를 비우면 더 이상 맞지 않는다.
 function scheduleDot(key, dot) {
   for (let i = 1; i <= dot.ticks; i++) {
-    setTimeout(() => applyLateDamage(key, dot.damage), i * dot.everyMs);
+    // 마지막 틱에서 불도 함께 끈다.
+    const extra = i === dot.ticks ? { [`burns/${key}`]: null } : null;
+    setTimeout(() => applyLateDamage(key, dot.damage, extra), i * dot.everyMs);
   }
+}
+
+// 지금 타고 있는 칸들. 불을 끄는 쓰기가 빠지더라도 시간이 지나면 저절로 사라진다.
+function burningKeys(battle) {
+  const burns = (battle && battle.burns) || {};
+  const now = serverNow();
+  return Object.keys(burns).filter((key) => {
+    const at = burns[key];
+    return typeof at === "number" && now - at < BURN_VISIBLE_MS;
+  });
 }
 
 // 시간이 지난 뒤에 들어가는 피해 (지속 피해 한 틱, 005의 튕김).

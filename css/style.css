@@ -1362,6 +1362,78 @@ body.battle-page {
   box-shadow: 0 0 12px rgba(255, 255, 255, .6), inset 0 0 12px rgba(255, 255, 255, .35);
 }
 
+/* 006이 붙인 불. 그림 없이 CSS로만 그린 불꽃이 타는 자리에서 흔들린다.
+   양쪽 화면에 같이 보이도록, 불붙은 자리는 방 데이터에 적어둔다. */
+.burn-fx {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 3;
+  border-radius: 4px;
+  /* 바닥에서 올라오는 열기 */
+  background:
+    radial-gradient(110% 58% at 50% 110%, rgba(255, 138, 20, .5), rgba(255, 80, 0, .14) 52%, transparent 70%);
+  animation: burn-glow .9s ease-in-out infinite alternate;
+}
+
+/* 불꽃 한 갈래. 아래는 넓고 위는 뾰족한 물방울을 뒤집은 모양. */
+.burn-fx .fl {
+  position: absolute;
+  bottom: 4%;
+  left: 50%;
+  border-radius: 50% 50% 44% 44% / 74% 74% 30% 30%;
+  background: linear-gradient(to top,
+    #fff6c2 0%, #ffd34d 26%, #ff9a1c 52%, #ff5410 78%, rgba(255, 64, 0, .25) 100%);
+  filter: blur(.5px);
+  mix-blend-mode: screen;
+  transform-origin: 50% 100%;
+}
+.burn-fx .fl-a {
+  width: 34%;
+  height: 56%;
+  margin-left: -17%;
+  animation: burn-sway 620ms ease-in-out infinite alternate;
+}
+.burn-fx .fl-b {
+  width: 22%;
+  height: 38%;
+  margin-left: -27%;
+  opacity: .9;
+  animation: burn-sway 470ms ease-in-out infinite alternate-reverse;
+}
+.burn-fx .fl-c {
+  width: 19%;
+  height: 32%;
+  margin-left: 8%;
+  opacity: .85;
+  animation: burn-sway 540ms 120ms ease-in-out infinite alternate;
+}
+
+/* 불꽃 속 밝은 심지 */
+.burn-fx .ember {
+  position: absolute;
+  bottom: 8%;
+  left: 50%;
+  width: 13%;
+  height: 22%;
+  margin-left: -6.5%;
+  border-radius: 50% 50% 40% 40% / 70% 70% 30% 30%;
+  background: linear-gradient(to top, #fffdf0, #ffe58a 60%, rgba(255, 220, 120, 0));
+  mix-blend-mode: screen;
+  animation: burn-sway 380ms ease-in-out infinite alternate;
+}
+
+@keyframes burn-sway {
+  from { transform: translateY(0) scaleY(.92) scaleX(1.04) skewX(-4deg); }
+  to   { transform: translateY(-6%) scaleY(1.08) scaleX(.94) skewX(5deg); }
+}
+
+@keyframes burn-glow {
+  from { opacity: .8; }
+  to   { opacity: 1; }
+}
+
 /* 곧 튕겨 맞을 적. 피해가 닿기 전 1초 동안 그 유닛 위에서 느낌표가 뛴다. */
 .bounce-warn {
   position: absolute;
