@@ -427,7 +427,8 @@ function renderMapTiles(myPlacements, oppPlacements) {
     if (burning.has(key)) {
       const fire = document.createElement("div");
       fire.className = "burn-fx";
-      fire.innerHTML = `<i class="fl fl-a"></i><i class="fl fl-b"></i><i class="fl fl-c"></i><i class="ember"></i>`;
+      fire.innerHTML = `<i class="mat"></i>` +
+        [1, 2, 3, 4, 5, 6].map((n) => `<i class="spark s${n}"></i>`).join("");
       tile.appendChild(fire);
     }
 
@@ -970,8 +971,15 @@ function selectUnitAt(key) {
 function chooseMove() {
   const battle = currentRoom && currentRoom.battle;
   if (!battle || battle.phase !== "playing") return;
-  if (actionMode === "move") return;      // 이미 고른 상태면 다시 그리지 않는다
   if (moveInFlight || attackInFlight) return; // 쓰기가 오가는 중에는 바꾸지 않는다
+
+  // 같은 키를 한 번 더 누르면 준비를 푼다 (화살표와 사거리가 사라진다).
+  if (actionMode === "move") {
+    actionMode = null;
+    aimDir = null;
+    renderBattle(currentRoom);
+    return;
+  }
 
   if (activeSlot === null) {
     pushNotice("움직일 유닛을 먼저 고르세요.", { group: "turn", duration: 1600 });
@@ -1348,8 +1356,15 @@ function hasAnyAttack(battle) {
 function chooseAttack() {
   const battle = currentRoom && currentRoom.battle;
   if (!battle || battle.phase !== "playing") return;
-  if (actionMode === "attack") return;
   if (moveInFlight || attackInFlight) return;
+
+  // 같은 키를 한 번 더 누르면 조준을 푼다.
+  if (actionMode === "attack") {
+    actionMode = null;
+    aimDir = null;
+    renderBattle(currentRoom);
+    return;
+  }
 
   if (activeSlot === null) {
     pushNotice("공격할 유닛을 먼저 고르세요.", { group: "turn", duration: 1600 });
