@@ -50,8 +50,8 @@
         "guestUnits": {
           "$slot": { ".validate": "newData.isString() && newData.val().matches(/^[A-Za-z]+_[0-9]{3}_Icon[.]png$/) && $slot.matches(/^[0-2]$/)" }
         },
-        "hostReady": { ".validate": "newData.isBoolean()" },
-        "guestReady": { ".validate": "newData.isBoolean()" },
+        "hostReady": { ".validate": "newData.isBoolean() && (root.child('rooms').child($roomId).child('hostUid').val() === auth.uid || (newData.val() === false && (!root.child('rooms').child($roomId).child('hostUid').exists() || !newData.parent().child('hostUid').exists() || !newData.parent().child('guestUid').exists() || root.child('rooms').child($roomId).child('battle').child('phase').val() === 'finished')))" },
+        "guestReady": { ".validate": "newData.isBoolean() && (root.child('rooms').child($roomId).child('guestUid').val() === auth.uid || (newData.val() === false && (!root.child('rooms').child($roomId).child('guestUid').exists() || !newData.parent().child('hostUid').exists() || !newData.parent().child('guestUid').exists() || root.child('rooms').child($roomId).child('battle').child('phase').val() === 'finished')))" },
         "hostOnline": { ".validate": "newData.isBoolean()" },
         "guestOnline": { ".validate": "newData.isBoolean()" },
         "playerCount": { ".validate": "newData.isNumber() && newData.val() >= 1 && newData.val() <= 2" },
