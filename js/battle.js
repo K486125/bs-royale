@@ -1425,13 +1425,14 @@ async function fireAttack() {
 
   targets.forEach((hit) => hurt(hit.key, damageAt(spec, hit.distance)));
 
-  // 005처럼 튕기는 공격: 맞은 칸을 둘러싼 여덟 칸 중 한 곳으로 한 번만 더 간다.
-  // 앞뒤좌우도 대각선도 되지만, 이미 맞힌 그 자리로는 돌아가지 않는다.
-  // 어디로 튈지는 무작위라, 그 자리에 적이 없으면 그냥 빗나간다.
+  // 005처럼 튕기는 공격: 맞은 칸을 둘러싼 여덟 칸(대각선 포함) 중 적이 선 자리로 한 번 더 간다.
+  // 옆에 적이 여럿이면 그중 무작위, 하나뿐이면 그 적, 아무도 없으면 튕길 곳이 없어 끝난다.
   if (spec.bounce && targets.length) {
     const hitKey = targets[0].key;
-    const around = neighborTiles(hitKey);
-    const pick = around[Math.floor(Math.random() * around.length)];
+    const around = neighborTiles(hitKey).filter((key) => opp[key]);
+    const pick = around.length > 1
+      ? around[Math.floor(Math.random() * around.length)]
+      : around[0];
     if (pick) hurt(pick, Math.round(damageAt(spec, targets[0].distance) * spec.bounce));
   }
 
