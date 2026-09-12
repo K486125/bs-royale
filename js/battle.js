@@ -1277,6 +1277,15 @@ function attackTiles(fromKey, dirKey, file) {
   return tiles;
 }
 
+// 어떤 칸의 상하좌우 이웃 (판 안쪽만)
+function neighborTiles(key) {
+  const { r, c } = parseTile(key);
+  return Object.values(DIRECTIONS)
+    .map(([dr, dc]) => ({ r: r + dr, c: c + dc }))
+    .filter((p) => p.r >= 0 && p.r < ROWS && p.c >= 0 && p.c < COLS)
+    .map((p) => tileKey(p.r, p.c));
+}
+
 function myUnitAt(battle, key) {
   const mine = battle[battleField()] || {};
   return key ? mine[key] : null;
@@ -1396,14 +1405,30 @@ async function fireAttack() {
     [`${myRole()}Ammo/${slot}`]: ammo - 1
   };
 
-  targets.forEach((hit) => {
-    const target = opp[hit.key];
+  const hurt = (key, amount) => {
+    const target = opp[key];
+    if (!target) return;
     const targetSlot = target.slot ?? 0;
-    const remaining = Math.max(0, hpOf(battle, oppRole, targetSlot, target.file) - damageAt(spec, hit.distance));
+    const before = updates[`${oppRole}Hp/${targetSlot}`];
+    const base = before === undefined ? hpOf(battle, oppRole, targetSlot, target.file) : before;
+    const remaining = Math.max(0, base - amount);
     updates[`${oppRole}Hp/${targetSlot}`] = remaining;
     // 체력이 0이 된 유닛은 판에서 내린다.
-    if (remaining === 0) updates[`${oppField()}/${hit.key}`] = null;
-  });
+    if (remaining === 0) updates[`${oppField()}/${key}`] = null;
+  };
+
+  targets.forEach((hit) => hurt(hit.key, damageAt(spec, hit.distance)));
+
+  // 005처럼 튕기는 공격: 맞은 칸 주변 한 칸으로 한 번만 더 간다.
+  // 어디로 튈지는 무작위라, 그 자리에 적이 없으면 그냥 빗나간다.
+  if (spec.bounce && targets.length) {
+    const hitKey = targets[0].key;
+    const around = neighborTiles(hitKey);
+    const pick = around[Math.floor(Math.random() * around.length)];
+    if (pick && pick !== hitKey) {
+      hurt(pick, Math.round(damageAt(spec, targets[0].distance) * spec.bounce));
+    }
+  }
 
   Object.assign(updates, turnHandoverUpdates(battle, left));
 
@@ -1413,6 +1438,8 @@ async function fireAttack() {
     await update(ref(db, `rooms/${roomId}/battle`), updates);
     actionMode = null;
     aimDir = null;
+    // 006처럼 자리에 남는 공격: 맞은 칸을 정해진 횟수만큼 계속 태운다.
+    if (spec.dot) scheduleDot(targets[0].key, spec.dot);
     attackFlash = { fromKey: from, tiles: line, until: Date.now() + ATTACK_FLASH_MS };
     setTimeout(() => {
       attackFlash = null;
@@ -1424,6 +1451,36 @@ async function fireAttack() {
     writeFailNotice("공격", err);
   } finally {
     attackInFlight = false;
+  }
+}
+
+// 맞은 자리에 남는 지속 피해. 정해진 간격마다 그 칸에 서 있는 적을 때린다.
+// 그 사이에 적이 자리를 비우면 더 이상 맞지 않는다.
+function scheduleDot(key, dot) {
+  for (let i = 1; i <= dot.ticks; i++) {
+    setTimeout(() => applyDotTick(key, dot.damage), i * dot.everyMs);
+  }
+}
+
+async function applyDotTick(key, damage) {
+  const battle = currentRoom && currentRoom.battle;
+  if (!battle || battle.phase !== "playing") return;
+
+  const opp = battle[oppField()] || {};
+  const target = opp[key];
+  if (!target) return;
+
+  const oppRole = isHost ? "guest" : "host";
+  const slot = target.slot ?? 0;
+  const remaining = Math.max(0, hpOf(battle, oppRole, slot, target.file) - damage);
+
+  const updates = { [`${oppRole}Hp/${slot}`]: remaining };
+  if (remaining === 0) updates[`${oppField()}/${key}`] = null;
+
+  try {
+    await update(ref(db, `rooms/${roomId}/battle`), updates);
+  } catch (err) {
+    console.error("지속 피해 실패:", err);
   }
 }
 

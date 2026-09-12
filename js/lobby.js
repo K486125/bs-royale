@@ -96,9 +96,10 @@ function avatarUrl(file) {
   return AVATAR_PATH + file;
 }
 
-// 대기실에 들어가면 001, 002, 003이 이미 장착돼 있다 (바로 준비를 누를 수 있게).
+// 대기실에 들어가면 유닛이 이미 장착돼 있다 (바로 준비를 누를 수 있게).
+// 지금은 새로 만든 004~006을 시험하기 위해 그 셋을 기본으로 둔다.
 function defaultUnits() {
-  return AVATARS.slice(0, 3);
+  return AVATARS.slice(3, 6);
 }
 
 function avatarCardMarkup(file) {
