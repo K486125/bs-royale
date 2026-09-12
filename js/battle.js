@@ -1277,13 +1277,19 @@ function attackTiles(fromKey, dirKey, file) {
   return tiles;
 }
 
-// 어떤 칸의 상하좌우 이웃 (판 안쪽만)
+// 어떤 칸을 둘러싼 여덟 칸 (대각선까지, 판 안쪽만)
+const AROUND = [
+  [-1, -1], [-1, 0], [-1, 1],
+  [0, -1], [0, 1],
+  [1, -1], [1, 0], [1, 1]
+];
 function neighborTiles(key) {
   const { r, c } = parseTile(key);
-  return Object.values(DIRECTIONS)
+  return AROUND
     .map(([dr, dc]) => ({ r: r + dr, c: c + dc }))
     .filter((p) => p.r >= 0 && p.r < ROWS && p.c >= 0 && p.c < COLS)
-    .map((p) => tileKey(p.r, p.c));
+    .map((p) => tileKey(p.r, p.c))
+    .filter((k) => k !== key);
 }
 
 function myUnitAt(battle, key) {
@@ -1419,15 +1425,14 @@ async function fireAttack() {
 
   targets.forEach((hit) => hurt(hit.key, damageAt(spec, hit.distance)));
 
-  // 005처럼 튕기는 공격: 맞은 칸 주변 한 칸으로 한 번만 더 간다.
+  // 005처럼 튕기는 공격: 맞은 칸을 둘러싼 여덟 칸 중 한 곳으로 한 번만 더 간다.
+  // 앞뒤좌우도 대각선도 되지만, 이미 맞힌 그 자리로는 돌아가지 않는다.
   // 어디로 튈지는 무작위라, 그 자리에 적이 없으면 그냥 빗나간다.
   if (spec.bounce && targets.length) {
     const hitKey = targets[0].key;
     const around = neighborTiles(hitKey);
     const pick = around[Math.floor(Math.random() * around.length)];
-    if (pick && pick !== hitKey) {
-      hurt(pick, Math.round(damageAt(spec, targets[0].distance) * spec.bounce));
-    }
+    if (pick) hurt(pick, Math.round(damageAt(spec, targets[0].distance) * spec.bounce));
   }
 
   Object.assign(updates, turnHandoverUpdates(battle, left));
