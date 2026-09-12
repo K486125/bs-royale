@@ -1408,8 +1408,8 @@ body.battle-page {
 }
 
 /* 006이 붙인 불. 그림 없이 CSS로만 그렸다.
-   칸을 덮는 네모난 불장판이 깔리고, 그 안에서 불꽃씨 여섯이 제각각 흔들린다.
-   양쪽 화면에 같이 보이도록, 불붙은 자리는 방 데이터에 적어둔다. */
+   칸을 덮는 네모난 불장판 위에 작은 불씨 다섯이 좌·우·상·하·가운데에서 흔들린다.
+   내가 붙인 불은 푸르게, 내가 맞고 있는 불은 더 붉게 보인다 (색만 다르고 모양은 같다). */
 .burn-fx {
   position: absolute;
   inset: 0;
@@ -1417,6 +1417,51 @@ body.battle-page {
   pointer-events: none;
   z-index: 3;
   border-radius: 4px;
+  /* 기본은 불색. 아래에서 내 것/상대 것에 따라 이 값들만 바꾼다. */
+  --fire-edge: rgba(255, 140, 30, .85);
+  --fire-a: rgba(255, 90, 0, .1);
+  --fire-b: rgba(255, 170, 40, .1);
+  --fire-core: rgba(255, 120, 10, .34);
+  --fire-deep: rgba(180, 45, 0, .22);
+  --fire-glow: rgba(255, 180, 60, .42);
+  --fire-halo: rgba(255, 110, 0, .35);
+  --spark-1: #fff6c2;
+  --spark-2: #ffd34d;
+  --spark-3: #ff9a1c;
+  --spark-4: #ff5410;
+  --spark-5: rgba(255, 64, 0, .2);
+}
+
+/* 내가 쏜 불: 푸른 장판에 푸른 불씨 */
+.burn-fx.mine {
+  --fire-edge: rgba(70, 190, 255, .85);
+  --fire-a: rgba(0, 120, 255, .1);
+  --fire-b: rgba(60, 200, 255, .1);
+  --fire-core: rgba(30, 150, 255, .34);
+  --fire-deep: rgba(10, 60, 170, .24);
+  --fire-glow: rgba(120, 215, 255, .45);
+  --fire-halo: rgba(40, 150, 255, .38);
+  --spark-1: #eafcff;
+  --spark-2: #9fe9ff;
+  --spark-3: #45c2ff;
+  --spark-4: #1a6dff;
+  --spark-5: rgba(30, 90, 255, .2);
+}
+
+/* 내가 맞고 있는 불: 본래 불색보다 더 붉게 */
+.burn-fx.foe {
+  --fire-edge: rgba(255, 70, 30, .9);
+  --fire-a: rgba(210, 20, 0, .12);
+  --fire-b: rgba(255, 110, 30, .12);
+  --fire-core: rgba(230, 45, 10, .4);
+  --fire-deep: rgba(120, 10, 0, .3);
+  --fire-glow: rgba(255, 110, 50, .45);
+  --fire-halo: rgba(220, 40, 0, .4);
+  --spark-1: #ffe9c8;
+  --spark-2: #ffa24d;
+  --spark-3: #ff5a1c;
+  --spark-4: #d81707;
+  --spark-5: rgba(180, 20, 0, .22);
 }
 
 /* 장판: 칸 전체를 덮는 네모난 불바닥 */
@@ -1424,34 +1469,33 @@ body.battle-page {
   position: absolute;
   inset: 2px;
   border-radius: 3px;
-  border: 2px solid rgba(255, 140, 30, .85);
+  border: 2px solid var(--fire-edge);
   background:
-    repeating-linear-gradient(45deg, rgba(255, 90, 0, .1) 0 5px, rgba(255, 170, 40, .1) 5px 10px),
-    radial-gradient(80% 80% at 50% 60%, rgba(255, 120, 10, .34), rgba(180, 45, 0, .22));
-  box-shadow: inset 0 0 10px rgba(255, 180, 60, .42), 0 0 8px rgba(255, 110, 0, .35);
+    repeating-linear-gradient(45deg, var(--fire-a) 0 5px, var(--fire-b) 5px 10px),
+    radial-gradient(80% 80% at 50% 60%, var(--fire-core), var(--fire-deep));
+  box-shadow: inset 0 0 10px var(--fire-glow), 0 0 8px var(--fire-halo);
   animation: burn-glow .75s ease-in-out infinite alternate;
 }
 
-/* 불꽃씨: 아래가 넓고 위가 뾰족한 작은 불꽃 */
+/* 불씨: 아래가 넓고 위가 뾰족한 작은 불꽃. 다섯이 같은 크기다. */
 .burn-fx .spark {
   position: absolute;
-  width: 20%;
-  height: 34%;
+  width: 17%;
+  height: 27%;
   border-radius: 50% 50% 44% 44% / 74% 74% 30% 30%;
   background: linear-gradient(to top,
-    #fff6c2 0%, #ffd34d 28%, #ff9a1c 55%, #ff5410 80%, rgba(255, 64, 0, .2) 100%);
+    var(--spark-1) 0%, var(--spark-2) 28%, var(--spark-3) 55%, var(--spark-4) 80%, var(--spark-5) 100%);
   filter: blur(.4px);
   mix-blend-mode: screen;
   transform-origin: 50% 100%;
   animation: burn-sway 520ms ease-in-out infinite alternate;
 }
-/* 씨마다 자리와 크기, 흔들리는 속도를 달리해 불규칙하게 보이게 한다 */
-.burn-fx .s1 { left: 9%;  bottom: 6%;  width: 20%; height: 32%; animation-duration: 560ms; }
-.burn-fx .s2 { left: 40%; bottom: 3%;  width: 23%; height: 38%; animation-duration: 430ms; }
-.burn-fx .s3 { left: 71%; bottom: 7%;  width: 18%; height: 29%; animation-duration: 620ms; }
-.burn-fx .s4 { left: 22%; bottom: 38%; width: 14%; height: 22%; animation-duration: 480ms; opacity: .8; }
-.burn-fx .s5 { left: 56%; bottom: 42%; width: 12%; height: 19%; animation-duration: 700ms; opacity: .72; }
-.burn-fx .s6 { left: 79%; bottom: 45%; width: 11%; height: 17%; animation-duration: 380ms; opacity: .66; }
+/* 가운데 하나, 좌·우·상·하에 하나씩. 흔들리는 속도만 달리해 제각각 타게 한다. */
+.burn-fx .s-c { left: 41.5%; bottom: 36.5%; animation-duration: 430ms; }
+.burn-fx .s-l { left: 10%;   bottom: 36.5%; animation-duration: 560ms; }
+.burn-fx .s-r { left: 73%;   bottom: 36.5%; animation-duration: 620ms; }
+.burn-fx .s-t { left: 41.5%; bottom: 66%;   animation-duration: 380ms; }
+.burn-fx .s-b { left: 41.5%; bottom: 7%;    animation-duration: 700ms; }
 
 @keyframes burn-sway {
   from { transform: translateY(0) scaleY(.9) scaleX(1.06) skewX(-5deg); }

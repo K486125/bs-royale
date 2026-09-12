@@ -132,7 +132,12 @@
           "winner": { ".validate": "newData.isString() && newData.val().matches(/^(host|guest|none)$/)" },
 
           "burns": {
-            "$tile": { ".validate": "newData.isNumber() && $tile.matches(/^[0-6]_[0-6]$/)" }
+            "$tile": {
+              ".validate": "$tile.matches(/^[0-6]_[0-6]$/) && newData.hasChildren(['at', 'by'])",
+              "at": { ".validate": "newData.isNumber()" },
+              "by": { ".validate": "newData.isString() && newData.val().matches(/^(host|guest)$/)" },
+              "$other": { ".validate": false }
+            }
           },
 
           "bounceMark": {

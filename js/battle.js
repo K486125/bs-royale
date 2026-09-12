@@ -407,7 +407,7 @@ function renderMapTiles(myPlacements, oppPlacements) {
   const oppSelected = playing ? battle[isHost ? "guestSelected" : "hostSelected"] : null;
 
   const selected = activeTile(battle);
-  const burning = new Set(burningKeys(battle));
+  const burning = burningTiles(battle);
 
   mapEl.querySelectorAll(".tile").forEach((tile) => {
     const key = `${tile.dataset.row}_${tile.dataset.col}`;
@@ -424,11 +424,12 @@ function renderMapTiles(myPlacements, oppPlacements) {
       : "";
 
     // 불도 자리에 남는다. 그 칸에 선 유닛이 틱마다 타고, 자리를 비우면 더 맞지 않는다.
-    if (burning.has(key)) {
+    if (Object.prototype.hasOwnProperty.call(burning, key)) {
       const fire = document.createElement("div");
-      fire.className = "burn-fx";
+      // 내가 붙인 불은 푸르게, 내가 맞고 있는 불은 더 붉게 보인다.
+      fire.className = "burn-fx " + (burning[key] ? "mine" : "foe");
       fire.innerHTML = `<i class="mat"></i>` +
-        [1, 2, 3, 4, 5, 6].map((n) => `<i class="spark s${n}"></i>`).join("");
+        ["c", "l", "r", "t", "b"].map((pos) => `<i class="spark s-${pos}"></i>`).join("");
       tile.appendChild(fire);
     }
 
@@ -1462,7 +1463,9 @@ async function fireAttack() {
   let bounceTo = null;
   updates.bounceMark = null;   // 지난 표시는 지우고 시작한다
   // 006처럼 자리를 태우는 공격은 그 칸을 불붙은 자리로 적어둔다 (양쪽 화면에 불이 보인다)
-  if (spec.dot && targets.length) updates[`burns/${targets[0].key}`] = serverTimestamp();
+  if (spec.dot && targets.length) {
+    updates[`burns/${targets[0].key}`] = { at: serverTimestamp(), by: myRole() };
+  }
   if (spec.bounce && targets.length) {
     const hitKey = targets[0].key;
     const around = neighborTiles(hitKey).filter((key) => opp[key]);
@@ -1514,13 +1517,18 @@ function scheduleDot(key, dot) {
 }
 
 // 지금 타고 있는 칸들. 불을 끄는 쓰기가 빠지더라도 시간이 지나면 저절로 사라진다.
-function burningKeys(battle) {
+// 지금 타고 있는 칸들과, 그 불을 누가 붙였는지.
+function burningTiles(battle) {
   const burns = (battle && battle.burns) || {};
   const now = serverNow();
-  return Object.keys(burns).filter((key) => {
-    const at = burns[key];
-    return typeof at === "number" && now - at < BURN_VISIBLE_MS;
+  const out = {};
+  Object.keys(burns).forEach((key) => {
+    const cell = burns[key];
+    const at = cell && cell.at;
+    if (typeof at !== "number" || now - at >= BURN_VISIBLE_MS) return;
+    out[key] = cell.by === myRole();   // true면 내가 붙인 불
   });
+  return out;
 }
 
 // 시간이 지난 뒤에 들어가는 피해 (지속 피해 한 틱, 005의 튕김).
