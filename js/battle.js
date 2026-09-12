@@ -1156,7 +1156,8 @@ function paintAmmo(battle) {
       // 다음 한 발이 들어올 자리는 채워지는 만큼만 칠한다.
       const filling = !loaded && i === ammo;
       pip.classList.toggle("filling", filling);
-      pip.querySelector("b").style.width = filling ? `${Math.round(progress * 100)}%` : "";
+      // 채워지는 칸만 길이를 갖는다. 다 찬 칸은 0으로 되돌려, 거꾸로 줄어드는 모습이 보이지 않게 한다.
+      pip.querySelector("b").style.width = filling ? `${(progress * 100).toFixed(1)}%` : "0%";
     });
   });
 }
@@ -1279,13 +1280,27 @@ function paintRing(box, value) {
 }
 
 // 200ms마다 게이지 값만 손본다.
+// 게이지는 화면이 그려지는 박자마다 손본다. 0.2초마다 툭툭 늘리면 계단처럼 보여서,
+// 매 프레임 시간을 다시 읽어 그 순간의 값으로 그린다 (통신은 하지 않는다).
+let paintFrame = null;
+function startPaintLoop() {
+  if (paintFrame !== null) return;
+  const step = () => {
+    const battle = currentRoom && currentRoom.battle;
+    if (!battle || battle.phase !== "playing") { paintFrame = null; return; }
+    paintRing(myEnergyEl, energyOf(battle, myRole()));
+    paintRing(enemyEnergyEl, energyOf(battle, isHost ? "guest" : "host"));
+    paintAmmo(battle);
+    paintFrame = requestAnimationFrame(step);
+  };
+  paintFrame = requestAnimationFrame(step);
+}
+
 function tickEnergy() {
   const battle = currentRoom && currentRoom.battle;
   if (!battle || battle.phase !== "playing") return;
 
-  paintRing(myEnergyEl, energyOf(battle, myRole()));
-  paintRing(enemyEnergyEl, energyOf(battle, isHost ? "guest" : "host"));
-  paintAmmo(battle);
+  startPaintLoop();
 
   // 에너지가 차면서 쓸 수 있게 된 버튼을 열어준다.
   const unit = myUnitAt(battle, activeTile(battle));

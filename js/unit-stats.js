@@ -27,8 +27,8 @@ const ATTACK = {
   "004": { range: 1, splash: false, damage: 4000 },         // 자기 칸 포함 2타일(실제 1칸), 근접 단일
   "005": { range: 3, splash: false, damage: 2000, bounce: 0.6 },  // 자기 칸 포함 4타일, 한 번 튕김
   "006": {
-    range: 4, splash: false, damage: 1300,                  // 자기 칸 포함 5타일, 단일
-    dot: { damage: 300, ticks: 3, everyMs: 1000 }           // 맞은 자리에 3초간 1초마다 300
+    range: 4, splash: false, damage: 1900,                  // 자기 칸 포함 5타일, 단일
+    dot: { damage: 350, ticks: 3, everyMs: 1000 }           // 맞은 자리에 3초간 1초마다 350
   }
 };
 
@@ -54,7 +54,7 @@ const RELOAD_MS = {
   "003": 3000,  // Colt
   "004": 4000,  // Bull
   "005": 3000,  // Jessie
-  "006": 3500   // Brock
+  "006": 3000   // Brock
 };
 const FALLBACK_RELOAD_MS = 3500;
 
