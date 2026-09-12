@@ -972,6 +972,18 @@ body.battle-page {
   background: linear-gradient(180deg, #ffe58a, #f0b429);
   box-shadow: 0 0 4px rgba(255, 200, 80, .55);
 }
+/* 지금 차오르는 중인 한 발. 시간이 지나는 만큼 왼쪽부터 채워진다. */
+.ammo-row i { position: relative; overflow: hidden; }
+.ammo-row i b {
+  position: absolute;
+  left: 0;
+  top: 0;
+  height: 100%;
+  width: 0;
+  border-radius: 2px;
+  background: linear-gradient(180deg, rgba(255, 229, 138, .55), rgba(240, 180, 41, .55));
+  transition: width .2s linear;
+}
 
 /* ---------- 에너지 게이지 ---------- */
 /* 사이드바 맨 아래. 세 유닛이 함께 쓰는 값이라 사람마다 하나뿐이다.

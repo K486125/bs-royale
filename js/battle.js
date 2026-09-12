@@ -1,6 +1,6 @@
 import { firebaseConfig } from "./firebase-config.js";
 import { unitFrameClass } from "./unit-colors.js";
-import { maxHp, attackOf, damageAt, costOf, MAX_ENERGY, ENERGY_PER_SEC } from "./unit-stats.js";
+import { maxHp, attackOf, damageAt, costOf, reloadMs, MAX_ENERGY, ENERGY_PER_SEC } from "./unit-stats.js";
 import { playSelect } from "./sfx.js";
 import {
   newChatKey, watchChatData, isLastLeaveNotice, noticeEntry, trimRootUpdates
@@ -92,7 +92,6 @@ const turnBarEl = document.getElementById("turn-bar");
 const turnActionsEl = document.getElementById("turn-actions");
 const actMoveBtn = document.getElementById("act-move");
 const actAttackBtn = document.getElementById("act-attack");
-const actReloadBtn = document.getElementById("act-reload");
 const toastEl = document.getElementById("toast");
 
 function showToast(msg) {
@@ -335,7 +334,6 @@ window.addEventListener("keydown", (e) => {
   // 한글 입력 상태에서도 같은 자리의 키가 먹도록 e.code를 함께 본다.
   if (e.code === "KeyW" || (e.key || "").toLowerCase() === "w") chooseMove();
   else if (e.code === "KeyA" || (e.key || "").toLowerCase() === "a") chooseAttack();
-  else if (e.code === "KeyS" || (e.key || "").toLowerCase() === "s") doReload();
 });
 
 // ---------- 자동 배치 (개발/테스트용) ----------
@@ -738,7 +736,7 @@ function affordable(battle, unit, action) {
   const cost = costOf(unit.file, action);
   const have = energyOf(battle, myRole());
   if (have + 0.5 >= cost) return true;
-  const name = action === "move" ? "이동" : action === "attack" ? "공격" : "재장전";
+  const name = action === "move" ? "이동" : "공격";
   pushNotice(`에너지가 모자랍니다.
 ${name} ${cost} (지금 ${Math.floor(have)})`,
     { group: "energy", duration: 1600 });
@@ -762,14 +760,19 @@ async function startPlaying() {
     };
     // 양쪽 모두 에너지가 가득 찬 채로 시작한다.
     const fullEnergy = () => ({ v: MAX_ENERGY, at: serverTimestamp() });
+    const fullAmmo = () => {
+      const table = {};
+      for (let slot = 0; slot < 3; slot++) table[slot] = { v: MAX_AMMO, at: serverTimestamp() };
+      return table;
+    };
     await update(ref(db, `rooms/${roomId}/battle`), {
       phase: "playing",
       startedAt: serverTimestamp(),
       actedAt: serverTimestamp(),
       hostHp: fullHp(battle.hostPlacements),
       guestHp: fullHp(battle.guestPlacements),
-      hostAmmo: { 0: MAX_AMMO, 1: MAX_AMMO, 2: MAX_AMMO },
-      guestAmmo: { 0: MAX_AMMO, 1: MAX_AMMO, 2: MAX_AMMO },
+      hostAmmo: fullAmmo(),
+      guestAmmo: fullAmmo(),
       hostEnergy: fullEnergy(),
       guestEnergy: fullEnergy()
     });
@@ -833,7 +836,6 @@ function stepTarget(battle, fromKey, dir) {
 // 한 칸 이동. 에너지를 그만큼 쓰고, 쓴 자리에서 다시 차오른다.
 let moveInFlight = false;
 let attackInFlight = false;
-let reloadInFlight = false;
 // 이 시각 전에는 다음 행동(이동/공격)을 받지 않는다.
 // 경과 시간만 보므로 PC 시계가 어긋나 있어도 정확하다.
 let actionReadyAt = 0;
@@ -844,7 +846,7 @@ function onActionCooldown() {
 
 // 쓰기가 오가는 중이면 새 행동을 받지 않는다 (연타로 같은 행동이 두 번 나가는 것을 막는다).
 function actionBusy() {
-  return moveInFlight || attackInFlight || reloadInFlight || onActionCooldown();
+  return moveInFlight || attackInFlight || onActionCooldown();
 }
 
 // 한 번 행동한 뒤 잠시 쉬고, 쉬는 시간이 끝나면 화면을 다시 그려 표시를 되살린다.
@@ -993,7 +995,6 @@ function chooseMove() {
 
 actMoveBtn.addEventListener("click", chooseMove);
 actAttackBtn.addEventListener("click", chooseAttack);
-actReloadBtn.addEventListener("click", doReload);
 
 // 방향키로 한 칸씩 움직인다.
 window.addEventListener("keydown", (e) => {
@@ -1081,19 +1082,83 @@ function animateHpBars(root) {
 }
 
 // ---------- 탄창 ----------
-function ammoOf(battle, role, slot) {
-  const table = battle[`${role}Ammo`] || {};
-  const value = table[slot];
-  return typeof value === "number" ? value : MAX_AMMO;
+// 탄창도 에너지와 같은 방식이다. "언제 몇 발이었는지"만 적어두고,
+// 지금 몇 발인지는 유닛별 장전 시간으로 각자 셈한다.
+// 그래서 차오르는 동안에는 주고받는 것이 없다.
+function ammoState(battle, role, slot, file) {
+  const cell = (battle[`${role}Ammo`] || {})[slot];
+  const per = reloadMs(file);
+  if (!cell || typeof cell.v !== "number") return { ammo: MAX_AMMO, progress: 0 };
+
+  const base = Math.max(0, Math.min(MAX_AMMO, cell.v));
+  const at = typeof cell.at === "number" ? cell.at : 0;
+  if (!at || !serverTimeReady() || base >= MAX_AMMO) return { ammo: base, progress: 0 };
+
+  const elapsed = Math.max(0, serverNow() - at);
+  const gained = Math.floor(elapsed / per);
+  const ammo = Math.min(MAX_AMMO, base + gained);
+  // 다음 한 발이 얼마나 찼는지 (막대에 조금씩 차오르는 모습으로 보여준다)
+  const progress = ammo >= MAX_AMMO ? 0 : (elapsed % per) / per;
+  return { ammo, progress };
 }
 
-// 남은 탄창을 점으로 보여준다.
-function ammoRowHtml(ammo) {
-  let pips = "";
-  for (let i = 0; i < MAX_AMMO; i++) {
-    pips += `<i class="${i < ammo ? "loaded" : ""}"></i>`;
+function ammoOf(battle, role, slot, file) {
+  return ammoState(battle, role, slot, file).ammo;
+}
+
+// 한 발 쓰고 남은 값을 적는다. 이미 차오르던 중이었다면 그 진행은 살려 둔다.
+function spendAmmo(battle, slot, file) {
+  const per = reloadMs(file);
+  const cell = (battle[`${myRole()}Ammo`] || {})[slot];
+  const base = cell && typeof cell.v === "number" ? Math.max(0, Math.min(MAX_AMMO, cell.v)) : MAX_AMMO;
+  const at = cell && typeof cell.at === "number" ? cell.at : 0;
+
+  if (!at || !serverTimeReady() || base >= MAX_AMMO) {
+    // 가득 찬 상태에서 쏘면 지금부터 다음 한 발이 차기 시작한다.
+    return { [`${myRole()}Ammo/${slot}`]: { v: Math.max(0, Math.min(MAX_AMMO, base) - 1), at: serverTimestamp() } };
   }
-  return `<div class="ammo-row">${pips}</div>`;
+
+  const elapsed = Math.max(0, serverNow() - at);
+  const gained = Math.floor(elapsed / per);
+  const now = ammoState(battle, myRole(), slot, file).ammo;
+  if (now >= MAX_AMMO) {
+    return { [`${myRole()}Ammo/${slot}`]: { v: MAX_AMMO - 1, at: serverTimestamp() } };
+  }
+  // 채워진 만큼만 기준점을 밀어, 남은 진행(예: 2.6초째)은 그대로 이어간다.
+  return {
+    [`${myRole()}Ammo/${slot}`]: {
+      v: Math.max(0, now - 1),
+      at: at + gained * per
+    }
+  };
+}
+
+// 남은 탄창을 점으로 보여준다. 차오르는 중인 한 발은 조금씩 채워진다.
+function ammoRowHtml(role, slot) {
+  let pips = "";
+  for (let i = 0; i < MAX_AMMO; i++) pips += `<i><b></b></i>`;
+  return `<div class="ammo-row" data-role="${role}" data-slot="${slot}">${pips}</div>`;
+}
+
+// 탄창 점을 지금 값에 맞춰 칠한다 (카드를 다시 만들지 않는다).
+function paintAmmo(battle) {
+  document.querySelectorAll(".ammo-row").forEach((row) => {
+    const role = row.dataset.role;
+    const slot = Number(row.dataset.slot);
+    const placements = battle[role === "host" ? "hostPlacements" : "guestPlacements"] || {};
+    const unit = Object.values(placements).find((u) => u && (u.slot ?? 0) === slot);
+    if (!unit) return;
+
+    const { ammo, progress } = ammoState(battle, role, slot, unit.file);
+    row.querySelectorAll("i").forEach((pip, i) => {
+      const loaded = i < ammo;
+      pip.classList.toggle("loaded", loaded);
+      // 다음 한 발이 들어올 자리는 채워지는 만큼만 칠한다.
+      const filling = !loaded && i === ammo;
+      pip.classList.toggle("filling", filling);
+      pip.querySelector("b").style.width = filling ? `${Math.round(progress * 100)}%` : "";
+    });
+  });
 }
 
 // ---------- 피해 표시 ----------
@@ -1178,7 +1243,7 @@ function renderTurnSidebar(myPlacements) {
         <div class="unit-tile ${unitFrameClass(unit.file)}">
           <img src="${AVATAR_PATH}${unit.file}" alt="">
         </div>
-        ${ammoRowHtml(ammoOf(battle, myRole(), unit.slot ?? 0))}
+        ${ammoRowHtml(myRole(), unit.slot ?? 0)}
       `;
       card.addEventListener("click", () => selectUnitAt(key));
       sidebarEl.appendChild(card);
@@ -1193,13 +1258,11 @@ function renderTurnSidebar(myPlacements) {
   // 공격 수치가 있고 탄창이 남은 유닛만 누를 수 있다.
   actAttackBtn.disabled = !canAttackNow(battle);
 
-  // 버튼에는 그 행동에 드는 에너지를 함께 보여준다.
+  // 버튼에는 그 행동에 드는 에너지를 함께 보여준다. (재장전은 시간이 알아서 한다)
   const unit = myUnitAt(battle, activeTile(battle));
   actMoveBtn.textContent = unit ? `이동 (W) ${costOf(unit.file, "move")}` : "이동 (W)";
   actAttackBtn.textContent = unit ? `공격 (A) ${costOf(unit.file, "attack")}` : "공격 (A)";
-  actReloadBtn.textContent = unit ? `재장전 (S) ${costOf(unit.file, "reload")}` : "재장전 (S)";
   actMoveBtn.disabled = !unit || energyOf(battle, myRole()) + 0.5 < costOf(unit.file, "move");
-  actReloadBtn.disabled = !canReloadNow(battle);
 }
 
 // 에너지 원형 게이지. 한 번 만들어 둔 것을 계속 쓰고, 여기서는 채워진 길이와
@@ -1222,13 +1285,13 @@ function tickEnergy() {
 
   paintRing(myEnergyEl, energyOf(battle, myRole()));
   paintRing(enemyEnergyEl, energyOf(battle, isHost ? "guest" : "host"));
+  paintAmmo(battle);
 
   // 에너지가 차면서 쓸 수 있게 된 버튼을 열어준다.
   const unit = myUnitAt(battle, activeTile(battle));
   if (unit) {
     actMoveBtn.disabled = energyOf(battle, myRole()) + 0.5 < costOf(unit.file, "move");
     actAttackBtn.disabled = !canAttackNow(battle);
-    actReloadBtn.disabled = !canReloadNow(battle);
   }
 }
 
@@ -1328,17 +1391,8 @@ function myUnitAt(battle, key) {
 function canAttackNow(battle) {
   const unit = myUnitAt(battle, activeTile(battle));
   if (!unit || !attackOf(unit.file)) return false;
-  if (ammoOf(battle, myRole(), unit.slot ?? 0) <= 0) return false;
+  if (ammoOf(battle, myRole(), unit.slot ?? 0, unit.file) <= 0) return false;
   return energyOf(battle, myRole()) + 0.5 >= costOf(unit.file, "attack");
-}
-
-// 탄창이 덜 찼고 에너지가 재장전 값만큼 있을 때 재장전할 수 있다.
-function canReloadNow(battle) {
-  const unit = myUnitAt(battle, activeTile(battle));
-  if (!unit) return false;
-  const slot = unit.slot ?? 0;
-  if (ammoOf(battle, myRole(), slot) >= MAX_AMMO) return false;
-  return energyOf(battle, myRole()) + 0.5 >= costOf(unit.file, "reload");
 }
 
 // 내 유닛 중 하나라도 지금 때릴 수 있는 적이 있는지 (차례를 넘길지 판단할 때 쓴다)
@@ -1377,8 +1431,8 @@ function chooseAttack() {
     pushNotice("이 유닛은 아직 공격할 수 없습니다.", { group: "attack", duration: 1800 });
     return;
   }
-  if (ammoOf(battle, myRole(), unit.slot ?? 0) <= 0) {
-    pushNotice("탄창이 비었습니다.\n재장전(S)이 필요합니다.", { group: "attack", duration: 2000 });
+  if (ammoOf(battle, myRole(), unit.slot ?? 0, unit.file) <= 0) {
+    pushNotice("탄창이 비었습니다.\n잠시 뒤 한 발이 찹니다.", { group: "attack", duration: 2000 });
     return;
   }
   if (!affordable(battle, unit, "attack")) return;
@@ -1429,9 +1483,9 @@ async function fireAttack() {
   }
 
   const slot = unit.slot ?? 0;
-  const ammo = ammoOf(battle, myRole(), slot);
+  const ammo = ammoOf(battle, myRole(), slot, unit.file);
   if (ammo <= 0) {
-    pushNotice("탄창이 비었습니다.\n재장전(S)이 필요합니다.", { group: "attack", duration: 2000 });
+    pushNotice("탄창이 비었습니다.\n잠시 뒤 한 발이 찹니다.", { group: "attack", duration: 2000 });
     return;
   }
 
@@ -1440,7 +1494,7 @@ async function fireAttack() {
   const oppRole = isHost ? "guest" : "host";
   const updates = {
     actedAt: serverTimestamp(),
-    [`${myRole()}Ammo/${slot}`]: ammo - 1,
+    ...spendAmmo(battle, slot, unit.file),
     ...spendEnergy(battle, costOf(unit.file, "attack"))
   };
 
@@ -1556,47 +1610,6 @@ async function applyLateDamage(key, damage, extra) {
     await update(ref(db, `rooms/${roomId}/battle`), updates);
   } catch (err) {
     console.error("나중 피해 실패:", err);
-  }
-}
-
-// 쌓인 재장전 하나를 탄창으로 옮긴다. 이것도 행위 1회를 쓴다.
-async function doReload() {
-  const battle = currentRoom && currentRoom.battle;
-  if (!battle || battle.phase !== "playing" || actionBusy()) return;
-
-  const unit = myUnitAt(battle, activeTile(battle));
-  if (!unit) {
-    pushNotice("재장전할 유닛을 먼저 고르세요.", { group: "turn", duration: 1600 });
-    return;
-  }
-
-  const slot = unit.slot ?? 0;
-  const ammo = ammoOf(battle, myRole(), slot);
-
-  if (ammo >= MAX_AMMO) {
-    pushNotice("탄창이 가득 찼습니다.", { group: "reload", duration: 1800 });
-    return;
-  }
-  if (!affordable(battle, unit, "reload")) return;
-
-  const updates = {
-    actedAt: serverTimestamp(),
-    [`${myRole()}Ammo/${slot}`]: Math.min(MAX_AMMO, ammo + 1),
-    ...spendEnergy(battle, costOf(unit.file, "reload"))
-  };
-
-  reloadInFlight = true;
-  playSelect();
-  try {
-    await update(ref(db, `rooms/${roomId}/battle`), updates);
-    actionMode = null;
-    aimDir = null;
-    startActionCooldown();
-  } catch (err) {
-    console.error("재장전 실패:", err);
-    writeFailNotice("재장전", err);
-  } finally {
-    reloadInFlight = false;
   }
 }
 

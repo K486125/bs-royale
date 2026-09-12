@@ -101,16 +101,20 @@
           },
 
           "hostAmmo": {
-            "$slot": { ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 3 && $slot.matches(/^[0-2]$/)" }
+            "$slot": {
+              ".validate": "$slot.matches(/^[0-2]$/) && newData.hasChildren(['v', 'at'])",
+              "v": { ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 3" },
+              "at": { ".validate": "newData.isNumber()" },
+              "$other": { ".validate": false }
+            }
           },
           "guestAmmo": {
-            "$slot": { ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 3 && $slot.matches(/^[0-2]$/)" }
-          },
-          "hostPending": {
-            "$slot": { ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 3 && $slot.matches(/^[0-2]$/)" }
-          },
-          "guestPending": {
-            "$slot": { ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 3 && $slot.matches(/^[0-2]$/)" }
+            "$slot": {
+              ".validate": "$slot.matches(/^[0-2]$/) && newData.hasChildren(['v', 'at'])",
+              "v": { ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 3" },
+              "at": { ".validate": "newData.isNumber()" },
+              "$other": { ".validate": false }
+            }
           },
 
           "hostSelected": { ".validate": "newData.isString() && newData.val().matches(/^[0-6]_[0-6]$/) && root.child('rooms').child($roomId).child('hostUid').val() === auth.uid" },

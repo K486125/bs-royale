@@ -32,11 +32,10 @@ const ATTACK = {
   }
 };
 
-// 행동에 드는 에너지. 에너지는 유닛마다 따로 차오르고(초당 10, 최대 100),
-// 이동과 공격은 유닛마다 값이 다르다. 재장전은 모두 같다.
+// 행동에 드는 에너지. 에너지는 사람마다 하나이고(초당 10, 최대 100),
+// 이동과 공격 비용은 유닛마다 다르다.
 const MAX_ENERGY = 100;
 const ENERGY_PER_SEC = 10;
-const RELOAD_COST = 30;
 const COST = {
   "001": { move: 20, attack: 15 },
   "002": { move: 15, attack: 20 },
@@ -47,13 +46,29 @@ const COST = {
 };
 const FALLBACK_COST = { move: 25, attack: 25 };
 
-export { MAX_ENERGY, ENERGY_PER_SEC, RELOAD_COST };
+// 탄창 한 발이 저절로 차는 데 걸리는 시간. 유닛마다 다르다.
+// 재장전은 더 이상 에너지를 쓰지 않고, 쏘고 나면 시간이 알아서 채워준다.
+const RELOAD_MS = {
+  "001": 3000,  // Shelly
+  "002": 3500,  // Nita
+  "003": 3000,  // Colt
+  "004": 4000,  // Bull
+  "005": 3000,  // Jessie
+  "006": 3500   // Brock
+};
+const FALLBACK_RELOAD_MS = 3500;
 
-// action: "move" | "attack" | "reload"
+export { MAX_ENERGY, ENERGY_PER_SEC };
+
+// action: "move" | "attack"
 export function costOf(file, action) {
-  if (action === "reload") return RELOAD_COST;
   const table = (file && COST[unitNumber(file)]) || FALLBACK_COST;
   return table[action] || 0;
+}
+
+export function reloadMs(file) {
+  if (!file) return FALLBACK_RELOAD_MS;
+  return RELOAD_MS[unitNumber(file)] || FALLBACK_RELOAD_MS;
 }
 
 export function attackOf(file) {
