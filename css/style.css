@@ -973,6 +973,47 @@ body.battle-page {
   box-shadow: 0 0 4px rgba(255, 200, 80, .55);
 }
 
+/* ---------- 에너지 바 ---------- */
+/* 유닛 카드 아래. 초당 10씩 100까지 차오르고, 행동하면 그만큼 줄어든다.
+   값은 시간으로 셈해서 0.2초마다 길이만 고쳐 그린다. */
+.energy-bar {
+  position: relative;
+  width: 100%;
+  height: 13px;
+  margin-top: 5px;
+  border-radius: 5px;
+  border: 2px solid #0c1024;
+  background: #1e2547;
+  overflow: hidden;
+  box-shadow: inset 0 2px 3px rgba(0,0,0,.55);
+}
+.energy-fill {
+  position: absolute;
+  left: 0;
+  top: 0;
+  height: 100%;
+  width: 0;
+  border-radius: 3px 1px 1px 3px;
+  background: linear-gradient(180deg, #b7f0ff 0%, #4ec3f7 45%, #1f7fd0 100%);
+  transition: width .18s linear;
+}
+/* 가득 차면 한 번 더 눈에 띄게 */
+.energy-bar.full .energy-fill {
+  background: linear-gradient(180deg, #e6fbff 0%, #7ee0ff 45%, #2aa3e6 100%);
+  box-shadow: 0 0 8px rgba(120, 220, 255, .75);
+}
+.energy-text {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  font-weight: 800;
+  color: #eaf6ff;
+  text-shadow: 0 1px 2px rgba(0,0,0,.9), 0 0 3px rgba(0,0,0,.8);
+}
+
 /* ---------- 체력 바 ---------- */
 /* 유닛 그림 바로 위에 붙는다. 숫자는 남은 체력만 보여준다 (1000 -> 670). */
 .hp-bar {

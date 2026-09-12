@@ -91,7 +91,7 @@
           "active": { ".validate": "newData.isString() && newData.val().matches(/^(host|guest)$/)" },
           "movesLeft": { ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 3" },
           "actedAt": { ".validate": "newData.isNumber()" },
-          "endReason": { ".validate": "newData.isString() && newData.val().matches(/^(timeout|turns)$/)" },
+          "endReason": { ".validate": "newData.isString() && newData.val().matches(/^(timeout|turns|wipe)$/)" },
 
           "hostHp": {
             "$slot": { ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 10000 && $slot.matches(/^[0-2]$/)" }
@@ -115,6 +115,25 @@
 
           "hostSelected": { ".validate": "newData.isString() && newData.val().matches(/^[0-6]_[0-6]$/) && root.child('rooms').child($roomId).child('hostUid').val() === auth.uid" },
           "guestSelected": { ".validate": "newData.isString() && newData.val().matches(/^[0-6]_[0-6]$/) && root.child('rooms').child($roomId).child('guestUid').val() === auth.uid" },
+
+          "hostEnergy": {
+            "$slot": {
+              ".validate": "$slot.matches(/^[0-2]$/) && newData.hasChildren(['v', 'at'])",
+              "v": { ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 100" },
+              "at": { ".validate": "newData.isNumber()" },
+              "$other": { ".validate": false }
+            }
+          },
+          "guestEnergy": {
+            "$slot": {
+              ".validate": "$slot.matches(/^[0-2]$/) && newData.hasChildren(['v', 'at'])",
+              "v": { ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 100" },
+              "at": { ".validate": "newData.isNumber()" },
+              "$other": { ".validate": false }
+            }
+          },
+          "startedAt": { ".validate": "newData.isNumber()" },
+          "winner": { ".validate": "newData.isString() && newData.val().matches(/^(host|guest|none)$/)" },
 
           "burns": {
             "$tile": { ".validate": "newData.isNumber() && $tile.matches(/^[0-6]_[0-6]$/)" }

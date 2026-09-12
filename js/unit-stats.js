@@ -32,6 +32,30 @@ const ATTACK = {
   }
 };
 
+// 행동에 드는 에너지. 에너지는 유닛마다 따로 차오르고(초당 10, 최대 100),
+// 이동과 공격은 유닛마다 값이 다르다. 재장전은 모두 같다.
+const MAX_ENERGY = 100;
+const ENERGY_PER_SEC = 10;
+const RELOAD_COST = 30;
+const COST = {
+  "001": { move: 20, attack: 15 },
+  "002": { move: 15, attack: 20 },
+  "003": { move: 25, attack: 25 },
+  "004": { move: 30, attack: 30 },
+  "005": { move: 20, attack: 25 },
+  "006": { move: 35, attack: 20 }
+};
+const FALLBACK_COST = { move: 25, attack: 25 };
+
+export { MAX_ENERGY, ENERGY_PER_SEC, RELOAD_COST };
+
+// action: "move" | "attack" | "reload"
+export function costOf(file, action) {
+  if (action === "reload") return RELOAD_COST;
+  const table = (file && COST[unitNumber(file)]) || FALLBACK_COST;
+  return table[action] || 0;
+}
+
 export function attackOf(file) {
   if (!file) return null;
   return ATTACK[unitNumber(file)] || null;

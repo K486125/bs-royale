@@ -1,6 +1,6 @@
 import { firebaseConfig } from "./firebase-config.js";
 import { unitFrameClass } from "./unit-colors.js";
-import { maxHp, attackOf, damageAt } from "./unit-stats.js";
+import { maxHp, attackOf, damageAt, costOf, MAX_ENERGY, ENERGY_PER_SEC } from "./unit-stats.js";
 import { playSelect } from "./sfx.js";
 import {
   newChatKey, watchChatData, isLastLeaveNotice, noticeEntry, trimRootUpdates
@@ -21,12 +21,11 @@ const ROWS = 7;
 const COLS = 7;
 const BOUNDARY_ROW = 3; // 세로 7칸 중 가운데 한 줄 = 배치 불가 경계선
 const PLACING_MS = 60000;
-const MAX_TURNS = 10;          // 이만큼 돌면 매치 종료
-const MOVES_PER_TURN = 3;      // 한 차례에 쓸 수 있는 행위 횟수 (이동/공격/재장전을 섞어 쓴다)
 const MAX_AMMO = 3;            // 유닛마다 가지는 탄창 수
 // 한 칸 움직인 뒤 이만큼은 다음 이동을 받지 않는다.
 // 연속으로 밀어 넣으면 서버에 반영되기 전 상태로 다음 이동을 계산하게 되어 어긋날 수 있다.
-const MOVE_COOLDOWN_MS = 1000;
+const ACTION_GUARD_MS = 250;    // 연타로 같은 행동이 두 번 나가지 않게 하는 최소 간격
+                                // (진짜 제동은 에너지가 건다)
 const BOUNCE_DELAY_MS = 1000;   // 005의 튕김이 옆 적에게 닿기까지
 const BURN_VISIBLE_MS = 3400;   // 006이 붙인 불이 남아 있는 시간
 
@@ -403,9 +402,7 @@ function renderMapTiles(myPlacements, oppPlacements) {
   mapEl.classList.toggle("playing", playing);
 
   // 상대가 지금 고른 유닛 (상대 차례일 때만 보여준다)
-  const oppSelected = playing && battle.active !== myRole()
-    ? battle[isHost ? "guestSelected" : "hostSelected"]
-    : null;
+  const oppSelected = playing ? battle[isHost ? "guestSelected" : "hostSelected"] : null;
 
   const selected = activeTile(battle);
   const burning = new Set(burningKeys(battle));
@@ -474,7 +471,7 @@ function renderMoveHints(battle) {
   });
 
   // 이동을 고른 뒤에만 화살표를 보여준다 (고르기만 했을 때는 아무것도 표시하지 않는다).
-  if (!battle || battle.phase !== "playing" || !isMyTurn(battle)) return;
+  if (!battle || battle.phase !== "playing") return;
   if (actionMode !== "move") return;
   if (moveInFlight || onActionCooldown()) return; // 아직 다음 행동을 받지 않는 동안
 
@@ -522,7 +519,7 @@ function renderAttackRange(battle) {
   }
 
   // 그 밖에는 공격을 고른 뒤에만 사거리를 보여준다.
-  if (!isMyTurn(battle) || actionMode !== "attack") return;
+  if (actionMode !== "attack") return;
 
   const from = activeTile(battle);
   const unit = myUnitAt(battle, from);
@@ -710,13 +707,37 @@ function renderCountdown(battle) {
   countdownInterval = setInterval(tick, 100);
 }
 
-// ---------- 턴제 진행 ----------
-// 한 차례에 이동 3번. 다 쓰면 상대 차례가 되고, 둘 다 마치면 한 턴이 끝난다.
-// 값은 모두 방 데이터에 들어 있어서 양쪽 화면이 같은 상태를 본다.
+// ---------- 실시간 진행 ----------
+// 차례가 없다. 유닛마다 에너지가 초당 10씩 100까지 차오르고, 그 에너지로 행동한다.
+// 방 데이터에는 "언제 얼마였는지"만 적어두고(v, at), 지금 값은 양쪽이 각자 시간으로 셈한다.
+// 그래서 에너지가 차는 동안에는 아무 것도 주고받지 않는다.
 const myRole = () => (isHost ? "host" : "guest");
 
-function isMyTurn(battle) {
-  return !!battle && battle.phase === "playing" && battle.active === myRole();
+function energyOf(battle, role, slot) {
+  const cell = ((battle && battle[`${role}Energy`]) || {})[slot];
+  if (!cell || typeof cell.v !== "number") return MAX_ENERGY;
+  const at = typeof cell.at === "number" ? cell.at : 0;
+  if (!at || !serverTimeReady()) return Math.min(MAX_ENERGY, Math.max(0, cell.v));
+  const grown = cell.v + ((serverNow() - at) / 1000) * ENERGY_PER_SEC;
+  return Math.max(0, Math.min(MAX_ENERGY, grown));
+}
+
+// 행동에 쓴 만큼 깎고, 거기서부터 다시 차오르게 새 기준점을 적는다.
+function spendEnergy(battle, slot, cost) {
+  const left = Math.max(0, energyOf(battle, myRole(), slot) - cost);
+  return { [`${myRole()}Energy/${slot}`]: { v: Math.round(left), at: serverTimestamp() } };
+}
+
+// 에너지가 모자라면 알리고 막는다.
+function affordable(battle, unit, action) {
+  const cost = costOf(unit.file, action);
+  const have = energyOf(battle, myRole(), unit.slot ?? 0);
+  if (have + 0.5 >= cost) return true;
+  const name = action === "move" ? "이동" : action === "attack" ? "공격" : "재장전";
+  pushNotice(`에너지가 모자랍니다.
+${name} ${cost} (지금 ${Math.floor(have)})`,
+    { group: "energy", duration: 1600 });
+  return false;
 }
 
 // 카운트다운이 끝나면 방장이 대표로 첫 턴을 연다.
@@ -734,21 +755,25 @@ async function startPlaying() {
       });
       return table;
     };
+    // 양쪽 모두 에너지가 가득 찬 채로 시작한다.
+    const fullEnergy = () => {
+      const table = {};
+      for (let slot = 0; slot < 3; slot++) table[slot] = { v: MAX_ENERGY, at: serverTimestamp() };
+      return table;
+    };
     await update(ref(db, `rooms/${roomId}/battle`), {
       phase: "playing",
-      turn: 1,
-      active: "host", // 방장이 먼저 움직인다
-      movesLeft: MOVES_PER_TURN,
+      startedAt: serverTimestamp(),
       actedAt: serverTimestamp(),
       hostHp: fullHp(battle.hostPlacements),
       guestHp: fullHp(battle.guestPlacements),
       hostAmmo: { 0: MAX_AMMO, 1: MAX_AMMO, 2: MAX_AMMO },
       guestAmmo: { 0: MAX_AMMO, 1: MAX_AMMO, 2: MAX_AMMO },
-      hostPending: { 0: 0, 1: 0, 2: 0 },
-      guestPending: { 0: 0, 1: 0, 2: 0 }
+      hostEnergy: fullEnergy(),
+      guestEnergy: fullEnergy()
     });
   } catch (err) {
-    console.error("턴 시작 실패:", err);
+    console.error("전투 시작 실패:", err);
     playStartRequested = false;
   }
 }
@@ -804,14 +829,7 @@ function stepTarget(battle, fromKey, dir) {
   return key;
 }
 
-function hasAnyMove(battle) {
-  const mine = battle[battleField()] || {};
-  return Object.keys(mine).some((key) =>
-    Object.values(DIRECTIONS).some((d) => stepTarget(battle, key, d))
-  );
-}
-
-// 한 칸 이동. 남은 횟수가 0이 되면 차례가 넘어간다.
+// 한 칸 이동. 에너지를 그만큼 쓰고, 쓴 자리에서 다시 차오른다.
 let moveInFlight = false;
 let attackInFlight = false;
 let reloadInFlight = false;
@@ -830,15 +848,15 @@ function actionBusy() {
 
 // 한 번 행동한 뒤 잠시 쉬고, 쉬는 시간이 끝나면 화면을 다시 그려 표시를 되살린다.
 function startActionCooldown() {
-  actionReadyAt = Date.now() + MOVE_COOLDOWN_MS;
+  actionReadyAt = Date.now() + ACTION_GUARD_MS;
   setTimeout(() => {
     if (currentRoom && currentRoom.battle) renderBattle(currentRoom);
-  }, MOVE_COOLDOWN_MS);
+  }, ACTION_GUARD_MS);
 }
 
 async function moveUnit(fromKey, dir) {
   const battle = currentRoom && currentRoom.battle;
-  if (!battle || actionBusy() || !isMyTurn(battle)) return;
+  if (!battle || battle.phase !== "playing" || actionBusy()) return;
 
   const mine = battle[battleField()] || {};
   const unit = mine[fromKey];
@@ -851,15 +869,15 @@ async function moveUnit(fromKey, dir) {
     return;
   }
 
-  const left = Math.max(0, (battle.movesLeft || 0) - 1);
+  if (!affordable(battle, unit, "move")) return;
+
   const field = battleField();
   const updates = {
     [`${field}/${fromKey}`]: null,
     [`${field}/${toKey}`]: { slot: unit.slot, file: unit.file },
-    movesLeft: left,
-    actedAt: serverTimestamp()
+    actedAt: serverTimestamp(),
+    ...spendEnergy(battle, unit.slot ?? 0, costOf(unit.file, "move"))
   };
-  Object.assign(updates, turnHandoverUpdates(battle, left));
 
   // 선택은 번호로 잡고 있으므로, 칸이 바뀌어도 같은 유닛을 계속 조작한다.
   // 이동 준비(W)도 그대로 유지되어 방향키만 다시 누르면 이어서 움직인다.
@@ -877,54 +895,27 @@ async function moveUnit(fromKey, dir) {
   }
 }
 
-// 남은 이동이 0이면 다음 차례로 넘긴다. 게스트까지 마치면 한 턴이 끝난다.
-function turnHandoverUpdates(battle, movesLeft) {
-  if (movesLeft > 0) return {};
+// 한쪽 유닛이 모두 쓰러지면 매치가 끝난다. 먼저 알아챈 쪽이 적어둔다.
+let wipeEndRequested = false;
+function checkWipe(battle) {
+  if (wipeEndRequested || !battle || battle.phase !== "playing" || !battle.startedAt) return;
+  const hostLeft = Object.keys(battle.hostPlacements || {}).length;
+  const guestLeft = Object.keys(battle.guestPlacements || {}).length;
+  if (hostLeft > 0 && guestLeft > 0) return;
 
-  if (battle.active === "host") {
-    return { active: "guest", movesLeft: MOVES_PER_TURN };
-  }
-
-  const nextTurn = (battle.turn || 1) + 1;
-  if (nextTurn > MAX_TURNS) {
-    return { phase: "finished", endReason: "turns", finishedAt: serverTimestamp() };
-  }
-
-  // 턴이 하나 오를 때마다 양쪽 모든 유닛에게 재장전 거리가 하나씩 쌓인다.
-  const refill = {};
-  ["host", "guest"].forEach((role) => {
-    for (let slot = 0; slot < 3; slot++) {
-      refill[`${role}Pending/${slot}`] = Math.min(MAX_AMMO, pendingOf(battle, role, slot) + 1);
-    }
+  wipeEndRequested = true;
+  update(ref(db, `rooms/${roomId}/battle`), {
+    phase: "finished",
+    endReason: "wipe",
+    winner: hostLeft > 0 ? "host" : guestLeft > 0 ? "guest" : "none",
+    finishedAt: serverTimestamp()
+  }).catch((err) => {
+    console.error("매치 종료 처리 실패:", err);
+    wipeEndRequested = false;
   });
-
-  return { ...refill, turn: nextTurn, active: "host", movesLeft: MOVES_PER_TURN };
 }
 
-// 어느 방향으로도 못 움직이는 상황이면(둘러싸임) 차례가 영영 안 넘어가므로 넘겨준다.
-let stuckPassInFlight = false;
-async function passIfStuck(battle) {
-  if (stuckPassInFlight || actionBusy()) return;
-  if (!isMyTurn(battle)) return;
-  // 때릴 수 있는 적이 있으면 움직이지 못해도 할 일이 남아 있다.
-  if (hasAnyMove(battle) || hasAnyAttack(battle)) return;
-  stuckPassInFlight = true;
-  try {
-    await update(ref(db, `rooms/${roomId}/battle`), {
-      movesLeft: 0,
-      actedAt: serverTimestamp(),
-      ...turnHandoverUpdates(battle, 0)
-    });
-    pushNotice("할 수 있는 행위가 없어 차례를 넘깁니다.");
-  } catch (err) {
-    console.error("차례 넘기기 실패:", err);
-  } finally {
-    stuckPassInFlight = false;
-  }
-}
-
-// 방치 감지. 차례인 사람이 20초 동안 아무 것도 하지 않으면 매치를 끝낸다.
-// 차례가 아닌 쪽도 함께 감시해서, 상대 앱이 멈춰 있어도 둘 다 대기실로 돌아갈 수 있게 한다.
+// 방치 감지. 한동안 양쪽 모두 아무 것도 하지 않으면 매치를 끝낸다 (지금은 꺼둠).
 let idleEndRequested = false;
 async function endByIdle() {
   if (idleEndRequested) return;
@@ -966,10 +957,6 @@ function selectUnitAt(key) {
   const now = Date.now();
   if (now - lastSelectAt < SELECT_GAP_MS) return;
   lastSelectAt = now;
-  if (!isMyTurn(battle)) {
-    pushNotice("상대 차례입니다.", { group: "turn", duration: 1400 });
-    return;
-  }
   const mine = battle[battleField()] || {};
   if (!mine[key]) return;
 
@@ -987,10 +974,6 @@ function chooseMove() {
   if (actionMode === "move") return;      // 이미 고른 상태면 다시 그리지 않는다
   if (moveInFlight || attackInFlight) return; // 쓰기가 오가는 중에는 바꾸지 않는다
 
-  if (!isMyTurn(battle)) {
-    pushNotice("상대 차례입니다.", { group: "turn", duration: 1400 });
-    return;
-  }
   if (activeSlot === null) {
     pushNotice("움직일 유닛을 먼저 고르세요.", { group: "turn", duration: 1600 });
     return;
@@ -1022,10 +1005,6 @@ window.addEventListener("keydown", (e) => {
   if (!dirKey) return;
   e.preventDefault(); // 방향키로 화면이 스크롤되지 않도록
 
-  if (!isMyTurn(battle)) {
-    pushNotice("상대 차례입니다.", { group: "turn", duration: 1400 });
-    return;
-  }
   const from = activeTile(battle);
   if (!from) {
     pushNotice("조작할 유닛을 먼저 고르세요.", { group: "turn", duration: 1600 });
@@ -1100,14 +1079,7 @@ function ammoOf(battle, role, slot) {
   return typeof value === "number" ? value : MAX_AMMO;
 }
 
-// 턴이 오를 때마다 쌓이는 재장전 거리. 이걸 한 번에 하나씩 탄창으로 옮긴다.
-function pendingOf(battle, role, slot) {
-  const table = battle[`${role}Pending`] || {};
-  const value = table[slot];
-  return typeof value === "number" ? value : 0;
-}
-
-// 유닛 그림 아래에 탄창을 칸으로 보여준다 (내 유닛만).
+// 남은 탄창을 점으로 보여준다.
 function ammoRowHtml(ammo) {
   let pips = "";
   for (let i = 0; i < MAX_AMMO; i++) {
@@ -1199,6 +1171,7 @@ function renderTurnSidebar(myPlacements) {
           <img src="${AVATAR_PATH}${unit.file}" alt="">
         </div>
         ${ammoRowHtml(ammoOf(battle, myRole(), unit.slot ?? 0))}
+        ${energyBarHtml(myRole(), unit.slot ?? 0)}
       `;
       card.addEventListener("click", () => selectUnitAt(key));
       sidebarEl.appendChild(card);
@@ -1206,18 +1179,50 @@ function renderTurnSidebar(myPlacements) {
 
   animateHpBars(sidebarEl);
 
-  const canAct = activeSlot !== null && isMyTurn(battle);
+  const canAct = activeSlot !== null;
   turnActionsEl.classList.toggle("hidden", !canAct);
   actMoveBtn.classList.toggle("on", actionMode === "move");
   actAttackBtn.classList.toggle("on", actionMode === "attack");
   // 공격 수치가 있고 탄창이 남은 유닛만 누를 수 있다.
   actAttackBtn.disabled = !canAttackNow(battle);
 
-  // 재장전 버튼에는 지금 쌓여 있는 수를 함께 보여준다.
+  // 버튼에는 그 행동에 드는 에너지를 함께 보여준다.
   const unit = myUnitAt(battle, activeTile(battle));
-  const pending = unit ? pendingOf(battle, myRole(), unit.slot ?? 0) : 0;
-  actReloadBtn.textContent = pending > 0 ? `재장전 (S) ${pending}` : "재장전 (S)";
+  actMoveBtn.textContent = unit ? `이동 (W) ${costOf(unit.file, "move")}` : "이동 (W)";
+  actAttackBtn.textContent = unit ? `공격 (A) ${costOf(unit.file, "attack")}` : "공격 (A)";
+  actReloadBtn.textContent = unit ? `재장전 (S) ${costOf(unit.file, "reload")}` : "재장전 (S)";
+  actMoveBtn.disabled = !unit || energyOf(battle, myRole(), unit.slot ?? 0) + 0.5 < costOf(unit.file, "move");
   actReloadBtn.disabled = !canReloadNow(battle);
+}
+
+// 에너지 막대. 값은 시간이 지나면 저절로 오르므로, 만들 때는 틀만 두고
+// 화면 갱신(tickEnergy)에서 길이와 숫자만 바꾼다.
+function energyBarHtml(role, slot) {
+  return `<div class="energy-bar" data-role="${role}" data-slot="${slot}">
+    <i class="energy-fill"></i><span class="energy-text"></span>
+  </div>`;
+}
+
+// 200ms마다 에너지 막대만 손본다 (카드를 다시 만들지 않아 깜빡이지 않는다).
+function tickEnergy() {
+  const battle = currentRoom && currentRoom.battle;
+  if (!battle || battle.phase !== "playing") return;
+
+  document.querySelectorAll(".energy-bar").forEach((bar) => {
+    const value = energyOf(battle, bar.dataset.role, Number(bar.dataset.slot));
+    const pct = Math.max(0, Math.min(100, (value / MAX_ENERGY) * 100));
+    bar.querySelector(".energy-fill").style.width = pct + "%";
+    bar.querySelector(".energy-text").textContent = Math.floor(value);
+    bar.classList.toggle("full", value >= MAX_ENERGY - 0.5);
+  });
+
+  // 에너지가 차면서 쓸 수 있게 된 버튼을 열어준다.
+  const unit = myUnitAt(battle, activeTile(battle));
+  if (unit) {
+    actMoveBtn.disabled = energyOf(battle, myRole(), unit.slot ?? 0) + 0.5 < costOf(unit.file, "move");
+    actAttackBtn.disabled = !canAttackNow(battle);
+    actReloadBtn.disabled = !canReloadNow(battle);
+  }
 }
 
 // 오른쪽 사이드바: 상대 유닛의 상태만 보여준다 (고를 수 없고 단축키도 없다).
@@ -1239,6 +1244,7 @@ function renderEnemySidebar(battle, oppPlacements) {
         <div class="unit-tile ${unitFrameClass(unit.file)}">
           <img src="${AVATAR_PATH}${unit.file}" alt="">
         </div>
+        ${energyBarHtml(oppRole, unit.slot ?? 0)}
       `;
       enemySlotsEl.appendChild(card);
     });
@@ -1246,7 +1252,8 @@ function renderEnemySidebar(battle, oppPlacements) {
   animateHpBars(enemySlotsEl);
 }
 
-// 위쪽 띠: 몇 턴째인지, 누구 차례인지, 이동이 몇 번 남았는지, 방치까지 몇 초 남았는지.
+// 위쪽 띠: 실시간 전투라 차례가 없다. 경과 시간과 남은 유닛 수를 보여주고,
+// 같은 타이머로 에너지 막대도 함께 갱신한다.
 function renderTurnBar(battle) {
   clearInterval(turnInterval);
 
@@ -1255,36 +1262,18 @@ function renderTurnBar(battle) {
     return;
   }
   turnBarEl.classList.remove("hidden");
-
-  const mine = isMyTurn(battle);
-  turnBarEl.classList.toggle("mine", mine);
-
-  const head = `턴 ${battle.turn || 1}/${MAX_TURNS} · ${mine ? "내 차례" : "상대 차례"}`;
-  const moves = `${mine ? "행위" : "상대 행위"} ${battle.movesLeft ?? MOVES_PER_TURN}회 남음`;
-
-  // 방치 감지를 꺼둔 동안에는 남은 시간을 세지 않고, 상대가 마칠 때까지 기다린다.
-  if (!IDLE_TIMEOUT_ENABLED) {
-    turnBarEl.textContent = `${head} · ${moves}`;
-    return;
-  }
-
-  // 서버 시각을 모르거나 아직 첫 기록이 없으면 남은 시간을 셈하지 않는다
-  // (시계가 어긋난 PC에서 시작하자마자 시간 초과가 되는 것을 막는다).
-  if (!serverTimeReady() || !battle.actedAt) {
-    turnBarEl.textContent = `${head} · ${moves}`;
-    whenServerTime(() => {
-      if (currentRoom && currentRoom.battle) renderTurnBar(currentRoom.battle);
-    });
-    return;
-  }
+  turnBarEl.classList.add("mine");
 
   const tick = () => {
-    const left = Math.max(0, TURN_IDLE_MS - (serverNow() - battle.actedAt));
-    turnBarEl.textContent = `${head} · ${moves} · ${Math.ceil(left / 1000)}s`;
-    if (left <= 0) {
-      clearInterval(turnInterval);
-      endByIdle();
+    const mineLeft = Object.keys(battle[battleField()] || {}).length;
+    const oppLeft = Object.keys(battle[oppField()] || {}).length;
+    let head = "실시간 전투";
+    if (serverTimeReady() && battle.startedAt) {
+      const sec = Math.max(0, Math.floor((serverNow() - battle.startedAt) / 1000));
+      head += ` · ${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, "0")}`;
     }
+    turnBarEl.textContent = `${head} · 내 유닛 ${mineLeft} · 상대 ${oppLeft}`;
+    tickEnergy();
   };
   tick();
   turnInterval = setInterval(tick, 200);
@@ -1333,15 +1322,17 @@ function myUnitAt(battle, key) {
 function canAttackNow(battle) {
   const unit = myUnitAt(battle, activeTile(battle));
   if (!unit || !attackOf(unit.file)) return false;
-  return ammoOf(battle, myRole(), unit.slot ?? 0) > 0;
+  if (ammoOf(battle, myRole(), unit.slot ?? 0) <= 0) return false;
+  return energyOf(battle, myRole(), unit.slot ?? 0) + 0.5 >= costOf(unit.file, "attack");
 }
 
-// 쌓인 재장전이 있고 탄창이 아직 다 차지 않았을 때만 재장전할 수 있다.
+// 탄창이 덜 찼고 에너지가 재장전 값만큼 있을 때 재장전할 수 있다.
 function canReloadNow(battle) {
   const unit = myUnitAt(battle, activeTile(battle));
   if (!unit) return false;
   const slot = unit.slot ?? 0;
-  return pendingOf(battle, myRole(), slot) > 0 && ammoOf(battle, myRole(), slot) < MAX_AMMO;
+  if (ammoOf(battle, myRole(), slot) >= MAX_AMMO) return false;
+  return energyOf(battle, myRole(), slot) + 0.5 >= costOf(unit.file, "reload");
 }
 
 // 내 유닛 중 하나라도 지금 때릴 수 있는 적이 있는지 (차례를 넘길지 판단할 때 쓴다)
@@ -1363,10 +1354,6 @@ function chooseAttack() {
   if (actionMode === "attack") return;
   if (moveInFlight || attackInFlight) return;
 
-  if (!isMyTurn(battle)) {
-    pushNotice("상대 차례입니다.", { group: "turn", duration: 1400 });
-    return;
-  }
   if (activeSlot === null) {
     pushNotice("공격할 유닛을 먼저 고르세요.", { group: "turn", duration: 1600 });
     return;
@@ -1381,6 +1368,7 @@ function chooseAttack() {
     pushNotice("탄창이 비었습니다.\n재장전(S)이 필요합니다.", { group: "attack", duration: 2000 });
     return;
   }
+  if (!affordable(battle, unit, "attack")) return;
   actionMode = "attack";
   aimDir = null;
   renderBattle(currentRoom);
@@ -1405,7 +1393,7 @@ function aimAt(dirKey) {
 async function fireAttack() {
   const battle = currentRoom && currentRoom.battle;
   if (!battle || battle.phase !== "playing" || actionBusy()) return;
-  if (actionMode !== "attack" || !isMyTurn(battle)) return;
+  if (actionMode !== "attack") return;
 
   if (!aimDir) {
     pushNotice("공격 방향을 먼저 정하세요.", { group: "attack", duration: 1600 });
@@ -1434,12 +1422,13 @@ async function fireAttack() {
     return;
   }
 
+  if (!affordable(battle, unit, "attack")) return;
+
   const oppRole = isHost ? "guest" : "host";
-  const left = Math.max(0, (battle.movesLeft || 0) - 1);
   const updates = {
-    movesLeft: left,
     actedAt: serverTimestamp(),
-    [`${myRole()}Ammo/${slot}`]: ammo - 1
+    [`${myRole()}Ammo/${slot}`]: ammo - 1,
+    ...spendEnergy(battle, slot, costOf(unit.file, "attack"))
   };
 
   const hurt = (key, amount) => {
@@ -1474,8 +1463,6 @@ async function fireAttack() {
       updates.bounceMark = { key: pick, at: serverTimestamp() };
     }
   }
-
-  Object.assign(updates, turnHandoverUpdates(battle, left));
 
   attackInFlight = true;
   playSelect();
@@ -1557,10 +1544,6 @@ async function doReload() {
   const battle = currentRoom && currentRoom.battle;
   if (!battle || battle.phase !== "playing" || actionBusy()) return;
 
-  if (!isMyTurn(battle)) {
-    pushNotice("상대 차례입니다.", { group: "turn", duration: 1400 });
-    return;
-  }
   const unit = myUnitAt(battle, activeTile(battle));
   if (!unit) {
     pushNotice("재장전할 유닛을 먼저 고르세요.", { group: "turn", duration: 1600 });
@@ -1569,29 +1552,18 @@ async function doReload() {
 
   const slot = unit.slot ?? 0;
   const ammo = ammoOf(battle, myRole(), slot);
-  const pending = pendingOf(battle, myRole(), slot);
 
   if (ammo >= MAX_AMMO) {
     pushNotice("탄창이 가득 찼습니다.", { group: "reload", duration: 1800 });
     return;
   }
-  if (pending <= 0) {
-    pushNotice("쌓인 재장전이 없습니다.", { group: "reload", duration: 1800 });
-    return;
-  }
+  if (!affordable(battle, unit, "reload")) return;
 
-  const left = Math.max(0, (battle.movesLeft || 0) - 1);
-  const handover = turnHandoverUpdates(battle, left);
-  const updates = { movesLeft: left, actedAt: serverTimestamp() };
-  Object.assign(updates, handover);
-
-  // 차례가 넘어가면서 재장전이 먼저 쌓일 수 있으므로, 그 값을 기준으로 하나를 뺀다.
-  const pendingKey = `${myRole()}Pending/${slot}`;
-  const basePending = Object.prototype.hasOwnProperty.call(handover, pendingKey)
-    ? handover[pendingKey]
-    : pending;
-  updates[pendingKey] = Math.max(0, basePending - 1);
-  updates[`${myRole()}Ammo/${slot}`] = Math.min(MAX_AMMO, ammo + 1);
+  const updates = {
+    actedAt: serverTimestamp(),
+    [`${myRole()}Ammo/${slot}`]: Math.min(MAX_AMMO, ammo + 1),
+    ...spendEnergy(battle, slot, costOf(unit.file, "reload"))
+  };
 
   reloadInFlight = true;
   playSelect();
@@ -1621,9 +1593,14 @@ function handleFinish(battle) {
   countdownOverlay.classList.add("hidden");
   turnBarEl.classList.add("hidden");
 
-  // 방치로 끊긴 경우에는 왜 끝났는지 알려준다.
+  // 왜 끝났는지 알려준다. 전멸로 끝났으면 이긴 쪽도 함께 보여준다.
   const timedOut = battle.endReason === "timeout";
-  matchEndTextEl.textContent = timedOut ? "시간 초과" : "매치 종료";
+  if (battle.endReason === "wipe") {
+    matchEndTextEl.textContent =
+      battle.winner === myRole() ? "승리" : battle.winner === "none" ? "무승부" : "패배";
+  } else {
+    matchEndTextEl.textContent = timedOut ? "시간 초과" : "매치 종료";
+  }
   if (timedOut) {
     pushNotice("20초 동안 아무 행동이 없어 매치를 종료합니다.", { duration: MATCH_END_MS });
   }
@@ -1774,8 +1751,8 @@ function renderBattle(room) {
   sidebarBoxEl.classList.toggle("playing", battle.phase === "playing");
 
   if (battle.phase === "playing") {
-    // 내 차례가 끝나면 선택과 이동 준비를 모두 푼다.
-    if (!isMyTurn(battle)) {
+    // 고른 유닛이 쓰러졌으면 선택을 푼다.
+    if (activeSlot !== null && !activeTile(battle)) {
       activeSlot = null;
       actionMode = null;
       aimDir = null;
@@ -1800,7 +1777,7 @@ function renderBattle(room) {
   renderTurnBar(battle);
   maybeAutoPlace(myPlacements);
   maybeAutoComplete(myPlacements);
-  if (battle.phase === "playing") passIfStuck(battle);
+  if (battle.phase === "playing") checkWipe(battle);
 }
 
 // ---------- 접속 상태 (대기실과 동일한 규칙) ----------
