@@ -70,6 +70,7 @@ let activeSlot = null;
 let sharedSelection = null; // 방 데이터에 적어둔 내 선택 (상대 화면에 표시하기 위함)
 let actionMode = null;     // 그 유닛으로 무엇을 할지: "move" | "attack"
 let aimDir = null;         // 공격 조준 방향 (방향키로 정하고 엔터로 쏜다)
+let bounceWarn = null;     // 곧 튕겨 맞을 적 (그 칸에 ! 를 띄운다)
 let attackFlash = null;    // 방금 쏜 사거리 (바로 지우지 않고 잠깐 남겨 사라지는 모습을 보여준다)
 let matchFinished = false; // 정상 종료로 대기실에 돌아가는 중인지 (상대 이탈과 구분)
 
@@ -421,6 +422,14 @@ function renderMapTiles(myPlacements, oppPlacements) {
     tile.innerHTML = placement
       ? `<div class="tile-unit-frame ${unitFrameClass(placement.file)}"><img src="${AVATAR_PATH}${placement.file}" alt=""></div>`
       : "";
+
+    // 곧 튕겨 맞을 적에게는 느낌표를 띄워, 피해가 닿기 전에 알아볼 수 있게 한다.
+    if (placement && bounceWarn && key === bounceWarn.key && Date.now() < bounceWarn.until) {
+      const warn = document.createElement("div");
+      warn.className = "bounce-warn";
+      warn.textContent = "!";
+      tile.appendChild(warn);
+    }
 
     // 상대가 움직이려는 유닛에는 네 방향 화살표를 그 칸 안에 모아 표시한다.
     if (placement && !mine && key === oppSelected) {
@@ -1449,7 +1458,15 @@ async function fireAttack() {
     actionMode = null;
     aimDir = null;
     // 005의 튕김은 곧바로 들어가지 않고 1초 뒤에 옆 적에게 닿는다.
-    if (bounceTo) setTimeout(() => applyLateDamage(bounceTo.key, bounceTo.damage), BOUNCE_DELAY_MS);
+    // 그동안 그 적 위에 느낌표를 띄워 어디로 튀는지 보여준다.
+    if (bounceTo) {
+      bounceWarn = { key: bounceTo.key, until: Date.now() + BOUNCE_DELAY_MS };
+      setTimeout(() => {
+        applyLateDamage(bounceTo.key, bounceTo.damage);
+        bounceWarn = null;
+        if (currentRoom && currentRoom.battle) renderBattle(currentRoom);
+      }, BOUNCE_DELAY_MS);
+    }
     // 006처럼 자리에 남는 공격: 맞은 칸을 정해진 횟수만큼 계속 태운다.
     if (spec.dot) scheduleDot(targets[0].key, spec.dot);
     attackFlash = { fromKey: from, tiles: line, until: Date.now() + ATTACK_FLASH_MS };

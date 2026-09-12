@@ -1362,6 +1362,34 @@ body.battle-page {
   box-shadow: 0 0 12px rgba(255, 255, 255, .6), inset 0 0 12px rgba(255, 255, 255, .35);
 }
 
+/* 곧 튕겨 맞을 적. 피해가 닿기 전 1초 동안 그 유닛 위에서 느낌표가 뛴다. */
+.bounce-warn {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  z-index: 4;
+  /* 유닛 그림 위에 글자를 올리므로, 살짝 어둡게 깔아 대비를 준다 */
+  background: rgba(8, 10, 24, .42);
+  border-radius: 4px;
+  font-size: 34px;
+  font-weight: 900;
+  line-height: 1;
+  color: #ffd53d;
+  text-shadow:
+    -2px -2px 0 #000, 2px -2px 0 #000,
+    -2px  2px 0 #000, 2px  2px 0 #000,
+    0 3px 0 rgba(0,0,0,.65), 0 0 14px rgba(255, 190, 40, .85);
+  animation: bounce-warn-pop .5s ease-in-out infinite alternate;
+}
+
+@keyframes bounce-warn-pop {
+  from { transform: translateY(-2px) scale(1); }
+  to   { transform: translateY(-7px) scale(1.18); }
+}
+
 /* 상대가 지금 움직이려고 고른 유닛. 네 방향 화살표를 그 칸 안에 모아 보여준다. */
 .opp-active-mark {
   position: absolute;
