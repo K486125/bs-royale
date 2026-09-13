@@ -23,16 +23,14 @@ const FALLBACK_MAX_HP = 6000;
 //   spread : 산탄. 구슬 총알 여러 발이 날아가 각자 한 칸씩 맞힌다 (아래 Shelly 참고).
 //            d 는 앞으로 몇 칸째, side 는 옆으로 몇 칸 벗어났는지, tileMs 는 한 칸 날아가는 시간.
 const ATTACK = {
-  // Shelly: 바로 앞 가로 3칸, 그 앞 가로 5칸. 모든 총알은 바로 앞 가운데 칸(총구)을 지나 퍼지므로
-  // 거기 선 적은 총알을 전부 맞는다 (600x5 + 300x2 = 3600).
+  // Shelly: 바로 앞 1칸, 그 앞 가로 3칸. 총알 3발이 바로 앞 칸(총구)을 지나 퍼지므로
+  // 거기 선 적은 총알을 전부 맞는다 (1000x3 = 3000). 퍼진 뒤에는 한 칸에 한 발, 1000씩.
   "001": {
     range: 2,
     spread: {
       tileMs: 750,   // 한 칸 0.75초 -> 가장 먼 2칸째까지 1.5초
       bullets: [
-        { d: 1, side: -1, damage: 300 }, { d: 1, side: 1, damage: 300 },
-        { d: 2, side: -2, damage: 600 }, { d: 2, side: -1, damage: 600 }, { d: 2, side: 0, damage: 600 },
-        { d: 2, side: 1, damage: 600 }, { d: 2, side: 2, damage: 600 }
+        { d: 2, side: -1, damage: 1000 }, { d: 2, side: 0, damage: 1000 }, { d: 2, side: 1, damage: 1000 }
       ]
     }
   },
