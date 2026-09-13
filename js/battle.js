@@ -1264,7 +1264,28 @@ function tileCenter(key) {
   const { r, c } = parseTile(key);
   const tile = mapEl.querySelector(`.tile[data-row="${r}"][data-col="${c}"]`);
   if (!tile) return null;
-  return { x: tile.offsetLeft + tile.offsetWidth / 2, y: tile.offsetTop + tile.offsetHeight / 2 };
+  return {
+    x: tile.offsetLeft + tile.offsetWidth / 2,
+    y: tile.offsetTop + tile.offsetHeight / 2,
+    half: tile.offsetWidth / 2
+  };
+}
+
+// p0 에서 벽 칸 한가운데(wall)로 가는 선이 벽 칸 가장자리에 처음 닿는 곳.
+// 총알 반지름만큼 앞에서 멈춰야 총알 가장자리가 벽에 딱 붙는다.
+// t 는 선 위의 비율(0~1), normal 은 벽이 총알 쪽으로 향한 면의 방향이다 (모서리면 대각선).
+function wallContact(p0, wall, bulletRadius) {
+  const dx = wall.x - p0.x;
+  const dy = wall.y - p0.y;
+  const reach = wall.half + bulletRadius;
+  const tx = Math.abs(dx) > reach ? (Math.abs(dx) - reach) / Math.abs(dx) : 0;
+  const ty = Math.abs(dy) > reach ? (Math.abs(dy) - reach) / Math.abs(dy) : 0;
+  const t = Math.max(tx, ty);
+  // 두 축이 거의 같은 순간에 닿으면 모서리에 맞은 것이다.
+  const corner = Math.abs(tx - ty) < 0.02;
+  const nx = (tx >= ty || corner) && dx ? -Math.sign(dx) : 0;
+  const ny = (ty >= tx || corner) && dy ? -Math.sign(dy) : 0;
+  return { t, x: p0.x + dx * t, y: p0.y + dy * t, nx, ny };
 }
 
 function animateSpread(shot, dir, spread, age) {
@@ -1274,31 +1295,72 @@ function animateSpread(shot, dir, spread, age) {
   const muzzle = cells.find((cell) => cell.muzzle);
   const mid = muzzle ? tileCenter(muzzle.key) : null;
   const mine = shot.by === myRole();
+  const radius = start.half * 0.24;   // 총알 지름이 칸의 24%라서, 반지름은 칸 절반의 24%
   const at = (p) => `translate(${p.x}px, ${p.y}px) translate(-50%, -50%)`;
+  const muzzleWall = muzzle && isWall(muzzle.key);
 
   const bullets = [];
+  const sparked = new Set();   // 같은 자리에 여러 발이 부딪혀도 불꽃은 한 번만
   cells.filter((cell) => !cell.muzzle).forEach((cell) => {
     const end = tileCenter(cell.key);
     if (!end) return;
+
+    // 지나가는 점과 그 점에 닿는 시각. 1칸째 총알은 곧장, 2칸째 총알은 총구를 지나 퍼진다.
+    let points = cell.d === 1 || !mid
+      ? [{ p: start, ms: 0 }, { p: end, ms: spread.tileMs * cell.d }]
+      : [{ p: start, ms: 0 }, { p: mid, ms: spread.tileMs }, { p: end, ms: spread.tileMs * 2 }];
+
+    // 벽에 닿으면 그 앞 가장자리에서 멈춘다. 총구가 벽이면 모든 총알이 첫 구간에서 멈춘다.
+    let hit = null;
+    if (muzzleWall && mid) {
+      const contact = wallContact(start, mid, radius);
+      hit = contact;
+      points = [points[0], { p: contact, ms: spread.tileMs * contact.t }];
+    } else if (isWall(cell.key)) {
+      const from = points[points.length - 2];
+      const last = points[points.length - 1];
+      const contact = wallContact(from.p, end, radius);
+      hit = contact;
+      points[points.length - 1] = { p: contact, ms: from.ms + (last.ms - from.ms) * contact.t };
+    }
+
+    const duration = Math.max(1, points[points.length - 1].ms);
     const el = document.createElement("div");
     el.className = "bullet " + (mine ? "mine" : "foe");
     mapEl.appendChild(el);
-    // 1칸째 총알은 곧장, 2칸째 총알은 총구를 지나 퍼진다.
-    const frames = cell.d === 1 || !mid
-      ? [{ transform: at(start) }, { transform: at(end) }]
-      : [{ transform: at(start) }, { transform: at(mid) }, { transform: at(end) }];
-    const anim = el.animate(frames, { duration: spread.tileMs * cell.d, delay: -age, fill: "forwards", easing: "linear" });
+    const frames = points.map(({ p, ms }) => ({ transform: at(p), offset: ms / duration }));
+    const anim = el.animate(frames, { duration, delay: -age, fill: "forwards", easing: "linear" });
     anim.onfinish = () => el.remove();
     bullets.push(el);
+
+    if (hit && duration > age) {
+      const spot = `${Math.round(hit.x)},${Math.round(hit.y)}`;
+      if (!sparked.has(spot)) {
+        sparked.add(spot);
+        setTimeout(() => wallSpark(hit, mine), duration - age);
+      }
+    }
   });
 
-  // 총구에 벽이나 쏜 쪽의 적이 있으면, 총알이 모두 거기서 멈춘다.
+  // 총구에 쏜 쪽의 적이 있으면, 총알이 모두 거기서 멈춘다.
   setTimeout(() => {
     const battle = currentRoom && currentRoom.battle;
-    if (!battle || !muzzle) return;
+    if (!battle || !muzzle || muzzleWall) return;
     const enemies = battle[shot.by === "host" ? "guestPlacements" : "hostPlacements"] || {};
-    if (isWall(muzzle.key) || enemies[muzzle.key]) bullets.forEach((el) => el.remove());
+    if (enemies[muzzle.key]) bullets.forEach((el) => el.remove());
   }, Math.max(0, spread.tileMs - age));
+}
+
+// 벽 가장자리에 부딪힌 자리에 남는 불꽃. 벽 반대쪽(총알이 온 쪽)으로 튄다.
+function wallSpark(contact, mine) {
+  const el = document.createElement("div");
+  el.className = "wall-hit " + (mine ? "mine" : "foe");
+  el.innerHTML = `<i style="--a:-55deg"></i><i style="--a:0deg"></i><i style="--a:55deg"></i>`;
+  // 그림은 위쪽으로 튀게 그려져 있으므로, 벽 면이 향한 방향으로 돌린다.
+  const angle = Math.atan2(contact.nx, -contact.ny) * 180 / Math.PI;
+  el.style.transform = `translate(${contact.x}px, ${contact.y}px) translate(-50%, -50%) rotate(${angle}deg)`;
+  mapEl.appendChild(el);
+  setTimeout(() => el.remove(), 420);
 }
 
 // 어떤 칸을 둘러싼 여덟 칸 (대각선까지, 판 안쪽만)
