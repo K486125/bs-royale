@@ -32,50 +32,24 @@ const ATTACK = {
   }
 };
 
-// 유닛 유형. 공격에 드는 에너지는 유형이 정한다.
-const ROLE = {
-  "001": "dealer",     // Shelly
-  "002": "dealer",     // Nita
-  "003": "dealer",     // Colt
-  "004": "tank",       // Bull
-  "005": "controller", // Jessie
-  "006": "sniper"      // Brock
-};
-const ATTACK_COST_BY_ROLE = {
-  dealer: 20,      // 대미지 딜러
-  controller: 10,  // 컨트롤러
-  tank: 30,        // 탱커
-  sniper: 25       // 저격수
-};
-
-// 행동에 드는 에너지. 에너지는 사람마다 하나이고(초당 10, 최대 100),
-// 이동은 모든 유닛이 같고, 공격은 유형별이다.
+// 에너지는 이동에만 쓴다 (사람마다 하나, 초당 10, 최대 100). 한 칸에 10.
+// 공격은 에너지를 쓰지 않고 탄창과 재장전 시간으로만 제한한다.
 const MAX_ENERGY = 100;
 const ENERGY_PER_SEC = 10;
 const MOVE_COST = 10;
-const FALLBACK_ATTACK_COST = 25;
 
 // 탄창 한 발이 저절로 차는 데 걸리는 시간. 유닛마다 다르다.
-// 재장전은 더 이상 에너지를 쓰지 않고, 쏘고 나면 시간이 알아서 채워준다.
 const RELOAD_MS = {
-  "001": 3000,  // Shelly
-  "002": 3500,  // Nita
-  "003": 3000,  // Colt
-  "004": 4000,  // Bull
-  "005": 3000,  // Jessie
-  "006": 3000   // Brock
+  "001": 4000,  // Shelly
+  "002": 4500,  // Nita
+  "003": 4000,  // Colt
+  "004": 5000,  // Bull
+  "005": 4000,  // Jessie
+  "006": 4000   // Brock
 };
-const FALLBACK_RELOAD_MS = 3500;
+const FALLBACK_RELOAD_MS = 4500;
 
-export { MAX_ENERGY, ENERGY_PER_SEC };
-
-// action: "move" | "attack"
-export function costOf(file, action) {
-  const num = file ? unitNumber(file) : null;
-  if (action === "move") return MOVE_COST;
-  if (action === "attack") return ATTACK_COST_BY_ROLE[ROLE[num]] || FALLBACK_ATTACK_COST;
-  return 0;
-}
+export { MAX_ENERGY, ENERGY_PER_SEC, MOVE_COST };
 
 export function reloadMs(file) {
   if (!file) return FALLBACK_RELOAD_MS;

@@ -1,7 +1,7 @@
 import "./update-overlay.js";   // 업데이트 중에는 화면을 덮고, 끝나면 재실행 버튼을 띄운다
 import { firebaseConfig } from "./firebase-config.js";
 import { unitFrameClass } from "./unit-colors.js";
-import { maxHp, attackOf, damageAt, costOf, reloadMs, MAX_ENERGY, ENERGY_PER_SEC } from "./unit-stats.js";
+import { maxHp, attackOf, damageAt, reloadMs, MAX_ENERGY, ENERGY_PER_SEC, MOVE_COST } from "./unit-stats.js";
 import { playSelect } from "./sfx.js";
 import {
   newChatKey, watchChatData, isLastLeaveNotice, noticeEntry, trimRootUpdates
@@ -551,13 +551,12 @@ function spendEnergy(battle, cost) {
 }
 
 // 에너지가 모자라면 알리고 막는다.
-function affordable(battle, unit, action) {
-  const cost = costOf(unit.file, action);
+// 에너지는 이동에만 쓴다.
+function canAffordMove(battle) {
   const have = energyOf(battle, myRole());
-  if (have + 0.5 >= cost) return true;
-  const name = action === "move" ? "이동" : "공격";
+  if (have + 0.5 >= MOVE_COST) return true;
   pushNotice(`에너지가 모자랍니다.
-${name} ${cost} (지금 ${Math.floor(have)})`,
+이동 ${MOVE_COST} (지금 ${Math.floor(have)})`,
     { group: "energy", duration: 1600 });
   return false;
 }
@@ -690,14 +689,14 @@ async function moveUnit(fromKey, dir) {
     return;
   }
 
-  if (!affordable(battle, unit, "move")) return;
+  if (!canAffordMove(battle)) return;
 
   const field = battleField();
   const updates = {
     [`${field}/${fromKey}`]: null,
     [`${field}/${toKey}`]: { slot: unit.slot, file: unit.file },
     actedAt: serverTimestamp(),
-    ...spendEnergy(battle, costOf(unit.file, "move"))
+    ...spendEnergy(battle, MOVE_COST)
   };
 
   // 조준 방향은 그대로 두어, 움직인 자리에서 바로 스페이스로 쏠 수 있다.
@@ -1023,10 +1022,9 @@ function renderTurnSidebar() {
   turnActionsEl.classList.toggle("hidden", !canAct);
   actAttackBtn.classList.toggle("on", !!aimDir);
 
-  // 판 아래 안내에는 키와 그 행동에 드는 에너지를 함께 보여준다. (재장전은 시간이 알아서 한다)
-  const unit = myUnitAt(battle, activeTile(battle));
-  actMoveBtn.textContent = unit ? `이동 WASD ${costOf(unit.file, "move")}` : "이동 WASD";
-  actAttackBtn.textContent = unit ? `조준 ←↑↓→ · 공격 Space ${costOf(unit.file, "attack")}` : "조준 ←↑↓→ · 공격 Space";
+  // 판 아래 안내에는 키를 보여준다. 에너지는 이동에만 들어서 이동 쪽에만 적는다.
+  actMoveBtn.textContent = `이동 WASD ${MOVE_COST}`;
+  actAttackBtn.textContent = "조준 ←↑↓→ · 공격 Space";
   paintActionGuide(battle);
 }
 
@@ -1034,7 +1032,7 @@ function renderTurnSidebar() {
 function paintActionGuide(battle) {
   const unit = myUnitAt(battle, activeTile(battle));
   if (!unit) return;
-  actMoveBtn.classList.toggle("off", energyOf(battle, myRole()) + 0.5 < costOf(unit.file, "move"));
+  actMoveBtn.classList.toggle("off", energyOf(battle, myRole()) + 0.5 < MOVE_COST);
   actAttackBtn.classList.toggle("off", !canAttackNow(battle));
 }
 
@@ -1160,8 +1158,7 @@ function myUnitAt(battle, key) {
 function canAttackNow(battle) {
   const unit = myUnitAt(battle, activeTile(battle));
   if (!unit || !attackOf(unit.file)) return false;
-  if (ammoOf(battle, myRole(), unit.slot ?? 0, unit.file) <= 0) return false;
-  return energyOf(battle, myRole()) + 0.5 >= costOf(unit.file, "attack");
+  return ammoOf(battle, myRole(), unit.slot ?? 0, unit.file) > 0;
 }
 
 // 내 유닛 중 하나라도 지금 때릴 수 있는 적이 있는지 (차례를 넘길지 판단할 때 쓴다)
@@ -1234,13 +1231,10 @@ async function fireAttack() {
     return;
   }
 
-  if (!affordable(battle, unit, "attack")) return;
-
   const oppRole = isHost ? "guest" : "host";
   const updates = {
     actedAt: serverTimestamp(),
-    ...spendAmmo(battle, slot, unit.file),
-    ...spendEnergy(battle, costOf(unit.file, "attack"))
+    ...spendAmmo(battle, slot, unit.file)
   };
 
   const hurt = (key, amount) => {
