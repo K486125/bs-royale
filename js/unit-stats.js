@@ -28,7 +28,7 @@ const ATTACK = {
   "001": {
     range: 2,
     spread: {
-      tileMs: 80,
+      tileMs: 750,   // 한 칸 0.75초 -> 가장 먼 2칸째까지 1.5초
       bullets: [
         { d: 1, side: -1, damage: 300 }, { d: 1, side: 1, damage: 300 },
         { d: 2, side: -2, damage: 600 }, { d: 2, side: -1, damage: 600 }, { d: 2, side: 0, damage: 600 },
