@@ -2197,3 +2197,53 @@ body.battle-page {
   0%   { transform: rotate(var(--a)) translateY(0); opacity: 1; }
   100% { transform: rotate(var(--a)) translateY(calc(var(--tile-size) * -.32)); opacity: 0; }
 }
+
+/* 구슬 총알이 유닛에 부딪힌 자리. 번쩍 하고 작은 구슬 조각들이 사방으로 튄다.
+   .big 은 바로 앞에서 총알이 한꺼번에 맞은 근접 공격. */
+.unit-hit {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: calc(var(--tile-size) * .6);
+  height: calc(var(--tile-size) * .6);
+  pointer-events: none;
+  z-index: 7;
+  --core: #ffd24a;
+  --edge: #c98a00;
+  --glow: rgba(255, 210, 74, .7);
+  --fly: calc(var(--tile-size) * .38);
+}
+.unit-hit.foe { --core: #ff6a55; --edge: #b01e10; --glow: rgba(255, 90, 70, .7); }
+.unit-hit.big {
+  width: calc(var(--tile-size) * .95);
+  height: calc(var(--tile-size) * .95);
+  --fly: calc(var(--tile-size) * .55);
+}
+.unit-hit::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(255, 252, 240, .95) 0 18%, var(--glow) 45%, transparent 72%);
+  animation: unit-hit-flash .34s ease-out forwards;
+}
+.unit-hit i {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: calc(var(--tile-size) * .13);
+  height: calc(var(--tile-size) * .13);
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 35%, #fffbe6 0 20%, var(--core) 50%, var(--edge) 100%);
+  box-shadow: 0 0 5px var(--glow);
+  transform: translate(-50%, -50%) rotate(var(--a)) translateY(0) scale(1);
+  animation: unit-hit-bead .5s cubic-bezier(.2, .7, .3, 1) forwards;
+}
+@keyframes unit-hit-flash {
+  0%   { transform: scale(.35); opacity: 1; }
+  100% { transform: scale(1.15); opacity: 0; }
+}
+@keyframes unit-hit-bead {
+  0%   { transform: translate(-50%, -50%) rotate(var(--a)) translateY(0) scale(1); opacity: 1; }
+  100% { transform: translate(-50%, -50%) rotate(var(--a)) translateY(calc(var(--fly) * -1)) scale(.4); opacity: 0; }
+}

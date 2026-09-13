@@ -1330,7 +1330,11 @@ function animateSpread(shot, dir, spread, age) {
     mapEl.appendChild(el);
     const frames = points.map(({ p, ms }) => ({ transform: at(p), offset: ms / duration }));
     const anim = el.animate(frames, { duration, delay: -age, fill: "forwards", easing: "linear" });
-    anim.onfinish = () => el.remove();
+    anim.onfinish = () => {
+      el.remove();
+      // 벽에 막히지 않고 도착했는데 그 칸에 적이 서 있으면, 구슬이 부딪혀 흩어진다.
+      if (!hit && enemyAt(shot, cell.key)) unitSpark(end, mine, false);
+    };
     bullets.push(el);
 
     if (hit && duration > age) {
@@ -1342,13 +1346,35 @@ function animateSpread(shot, dir, spread, age) {
     }
   });
 
-  // 총구에 쏜 쪽의 적이 있으면, 총알이 모두 거기서 멈춘다.
+  // 총구에 쏜 쪽의 적이 있으면, 총알이 모두 거기서 멈추고 한데 부딪혀 크게 흩어진다 (근접 공격).
   setTimeout(() => {
-    const battle = currentRoom && currentRoom.battle;
-    if (!battle || !muzzle || muzzleWall) return;
-    const enemies = battle[shot.by === "host" ? "guestPlacements" : "hostPlacements"] || {};
-    if (enemies[muzzle.key]) bullets.forEach((el) => el.remove());
+    if (!muzzle || muzzleWall || !enemyAt(shot, muzzle.key)) return;
+    bullets.forEach((el) => { el.getAnimations().forEach((a) => { a.onfinish = null; }); el.remove(); });
+    unitSpark(mid, mine, true);
   }, Math.max(0, spread.tileMs - age));
+}
+
+// 그 순간 그 칸에 쏜 쪽의 적이 서 있는지 (그림은 각자 자기 화면의 판을 보고 정한다).
+function enemyAt(shot, key) {
+  const battle = currentRoom && currentRoom.battle;
+  if (!battle) return false;
+  const enemies = battle[shot.by === "host" ? "guestPlacements" : "hostPlacements"] || {};
+  return !!enemies[key];
+}
+
+// 구슬이 유닛에 부딪힌 자리. 번쩍 하고 작은 구슬 조각들이 사방으로 튄다.
+// 근접(총알이 전부 한 번에 맞음)이면 더 크고 조각도 많다.
+function unitSpark(center, mine, big) {
+  if (!center) return;
+  const el = document.createElement("div");
+  el.className = "unit-hit " + (mine ? "mine" : "foe") + (big ? " big" : "");
+  const count = big ? 8 : 5;
+  const offset = Math.random() * 360;
+  el.innerHTML = Array.from({ length: count }, (_, i) =>
+    `<i style="--a:${Math.round(offset + (360 / count) * i)}deg"></i>`).join("");
+  el.style.transform = `translate(${center.x}px, ${center.y}px) translate(-50%, -50%)`;
+  mapEl.appendChild(el);
+  setTimeout(() => el.remove(), 520);
 }
 
 // 벽 가장자리에 부딪힌 자리에 남는 불꽃. 벽 반대쪽(총알이 온 쪽)으로 튄다.
