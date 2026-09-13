@@ -1185,7 +1185,7 @@ function resolveSpread(fromKey, dir, spread, shotId, elapsedMs) {
   let ended = false;
 
   const write = (updates) => update(ref(db, `rooms/${roomId}/battle`), updates)
-    .catch((err) => { console.error("총알 판정 실패:", err); writeFailNotice("총알 판정을", err); });
+    .catch((err) => { console.error("총알 판정 실패:", err); writeFailNotice("총알 판정", err); });
   const live = () => {
     const battle = currentRoom && currentRoom.battle;
     return battle && battle.phase === "playing" ? battle : null;
@@ -1250,7 +1250,7 @@ function resolveProjectile(fromKey, dir, spec, shotId, elapsedMs) {
   const hitSlots = new Set();
   let stopped = false;
   const write = (updates) => update(ref(db, `rooms/${roomId}/battle`), updates)
-    .catch((err) => { console.error("발사체 판정 실패:", err); writeFailNotice("발사체 판정을", err); });
+    .catch((err) => { console.error("발사체 판정 실패:", err); writeFailNotice("발사체 판정", err); });
 
   if (!path.length) { write(shotPath); return; }
   path.forEach((step, i) => {
@@ -1285,7 +1285,7 @@ function resolveBounceShot(fromKey, dir, spec, shotId, elapsedMs) {
   const tileMs = spec.projectile.tileMs;
   let done = false;
   const write = (updates) => update(ref(db, `rooms/${roomId}/battle`), updates)
-    .catch((err) => { console.error("전기 볼 판정 실패:", err); writeFailNotice("전기 볼 튕김을", err); });
+    .catch((err) => { console.error("전기 볼 판정 실패:", err); writeFailNotice("전기 볼 판정", err); });
 
   const impact = (battle, originKey, hitDamage) => {
     const updates = { [`shots/${shotId}`]: null };
@@ -1699,7 +1699,7 @@ async function fireBurstBullet(slot, dir, spec) {
     resolveProjectile(from, dir, spec, shotId, Date.now() - sentAt);
   } catch (err) {
     console.error("연발 총알 실패:", err);
-    writeFailNotice("총알을", err);
+    writeFailNotice("총알 발사", err);
   }
 }
 
