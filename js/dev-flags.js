@@ -6,7 +6,7 @@
 //
 // .gitattributes 가 이 파일을 병합에서 제외하므로(merge=ours),
 // dev 를 main 에 합쳐도 각 브랜치의 값이 그대로 남는다.
-export const DEV_TOOLS = false;
+export const DEV_TOOLS = true;
 
 // 개발 중 기본으로 장착해 둘 유닛 (DEV_TOOLS 가 켜져 있을 때만 쓴다).
 // 0부터 세는 번호다. [3, 4, 5] 는 004~006.
