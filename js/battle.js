@@ -1,3 +1,4 @@
+import "./update-overlay.js";   // 업데이트 중에는 화면을 덮고, 끝나면 재실행 버튼을 띄운다
 import { firebaseConfig } from "./firebase-config.js";
 import { unitFrameClass } from "./unit-colors.js";
 import { DEV_TOOLS } from "./dev-flags.js";

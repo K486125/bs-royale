@@ -4,5 +4,9 @@ const { contextBridge, ipcRenderer } = require("electron");
 contextBridge.exposeInMainWorld("bsApi", {
   startMusic: () => ipcRenderer.send("start-music"),
   setMusicSettings: (settings) => ipcRenderer.send("music-settings", settings),
-  onUpdateStatus: (callback) => ipcRenderer.on("update-status", (_event, status) => callback(status))
+  onUpdateStatus: (callback) => ipcRenderer.on("update-status", (_event, status) => callback(status)),
+  // 페이지를 새로 열었을 때, 이미 진행 중인 업데이트가 있는지 물어본다.
+  getUpdateStatus: () => ipcRenderer.invoke("get-update-status"),
+  // 다 받아진 업데이트를 적용하며 앱을 다시 켠다.
+  restartToUpdate: () => ipcRenderer.send("restart-to-update")
 });

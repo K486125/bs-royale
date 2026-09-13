@@ -97,10 +97,50 @@ let audioWin = null;
 let visibleWindowCount = 0;
 const mainWindows = [];
 
-// 업데이트 확인/다운로드/적용 준비 상태를 열려 있는 모든 창(로비 화면)에 알려서
-// 사용자가 "지금 뭐가 되고 있는지" 안심하고 볼 수 있게 한다.
+// 업데이트 확인/다운로드/적용 준비 상태를 열려 있는 모든 창에 알린다.
+// 마지막 상태를 여기서 기억해 두어, 다운로드 도중 페이지를 옮겨도(로비 -> 대기실 등)
+// 새 페이지가 곧바로 같은 업데이트 화면을 이어서 띄울 수 있게 한다.
+let updateStatus = null;
 function broadcastUpdateStatus(status) {
+  updateStatus = status;
   mainWindows.forEach((w) => w.webContents.send("update-status", status));
+}
+
+ipcMain.handle("get-update-status", () => updateStatus);
+
+// "앱 재실행" 버튼. 다 받아진 뒤에만 받는다.
+// 설치본은 조용히 설치한 뒤 새 버전으로 다시 켜지고, 개발 중 가짜 업데이트는 그냥 다시 켠다.
+ipcMain.on("restart-to-update", () => {
+  if (!updateStatus || updateStatus.type !== "ready") return;
+  if (app.isPackaged) {
+    autoUpdater.quitAndInstall(true, true); // (설치 창 없이, 설치 후 다시 실행)
+    return;
+  }
+  app.relaunch({ args: process.argv.slice(1).filter((arg) => arg !== "--fake-update") });
+  app.exit(0);
+});
+
+// 개발 중 업데이트 화면을 확인하기 위한 가짜 진행 (npm run dev-update).
+// 실제 업데이트와 같은 순서로 상태를 흘려보낸다: 새 버전 발견 -> 받는 중 -> 준비 완료.
+function runFakeUpdate() {
+  let percent = 0;
+  setTimeout(() => {
+    broadcastUpdateStatus({ type: "available", version: "9.9.9" });
+    const timer = setInterval(() => {
+      percent = Math.min(100, percent + 7);
+      broadcastUpdateStatus({ type: "downloading", version: "9.9.9", percent });
+      // BS_FAKE_UPDATE_FAIL=1 이면 중간에 실패시켜, 화면에 갇히지 않는지 확인한다.
+      if (process.env.BS_FAKE_UPDATE_FAIL === "1" && percent >= 50) {
+        clearInterval(timer);
+        broadcastUpdateStatus({ type: "error", message: "가짜 실패" });
+        return;
+      }
+      if (percent >= 100) {
+        clearInterval(timer);
+        setTimeout(() => broadcastUpdateStatus({ type: "ready", version: "9.9.9" }), 400);
+      }
+    }, 250);
+  }, 1500);
 }
 
 // 배경음악 전용 숨김 창. 로비<->대기실 페이지 이동(location.href)과 무관하게
@@ -228,12 +268,16 @@ if (gotLock) {
 
     // 패키징된 빌드에서만 GitHub Releases를 확인해 새 버전이 있으면 자동으로 받아 다음 실행 시 적용한다.
     // 진행 상황을 화면에도 보여줘서, 조용히 실패했는지 실제로 진행 중인지 사용자가 알 수 있게 한다.
+    if (!app.isPackaged && process.argv.includes("--fake-update")) runFakeUpdate();
+
     if (app.isPackaged) {
+      let updateVersion = null;
       autoUpdater.on("update-available", (info) => {
+        updateVersion = info.version;
         broadcastUpdateStatus({ type: "available", version: info.version });
       });
       autoUpdater.on("download-progress", (p) => {
-        broadcastUpdateStatus({ type: "downloading", percent: Math.round(p.percent) });
+        broadcastUpdateStatus({ type: "downloading", version: updateVersion, percent: Math.round(p.percent) });
       });
       autoUpdater.on("update-downloaded", (info) => {
         broadcastUpdateStatus({ type: "ready", version: info.version });
