@@ -1567,11 +1567,34 @@ function animateSpread(shot, dir, spread, age) {
 }
 
 // 그 순간 그 칸에 쏜 쪽의 적이 서 있는지 (그림은 각자 자기 화면의 판을 보고 정한다).
+// 방금 쓰러져 판에서 내려간 유닛도 서 있던 것으로 본다. 처치하는 한 방은 피해 기록과 함께 유닛이 먼저
+// 지워질 수 있어서, 그렇지 않으면 발사체가 적을 못 보고 그대로 지나가 버린다.
 function enemyAt(shot, key) {
   const battle = currentRoom && currentRoom.battle;
   if (!battle) return false;
-  const enemies = battle[shot.by === "host" ? "guestPlacements" : "hostPlacements"] || {};
-  return !!enemies[key];
+  const role = shot.by === "host" ? "guest" : "host";
+  if ((battle[`${role}Placements`] || {})[key]) return true;
+  const fell = recentDeaths[role][key];
+  return !!fell && Date.now() - fell < DEATH_MEMORY_MS;
+}
+
+// 쓰러진 유닛이 마지막으로 서 있던 칸과 그 시각. 발사체 그림이 처치 순간을 놓치지 않게 잠깐 기억한다.
+const DEATH_MEMORY_MS = 700;
+const recentDeaths = { host: {}, guest: {} };
+let lastUnitTiles = null;   // { host: {slot: 칸}, guest: {...} }
+function noteDeaths(battle) {
+  const now = tileSnapshot(battle);
+  if (lastUnitTiles) {
+    ["host", "guest"].forEach((role) => {
+      const hp = battle[`${role}Hp`] || {};
+      Object.keys(lastUnitTiles[role]).forEach((slot) => {
+        if (now[role][slot] === undefined && hp[slot] === 0) {
+          recentDeaths[role][lastUnitTiles[role][slot]] = Date.now();
+        }
+      });
+    });
+  }
+  lastUnitTiles = now;
 }
 
 // 구슬이 유닛에 부딪힌 자리. 번쩍 하고 작은 구슬 조각들이 사방으로 튄다.
@@ -2030,6 +2053,7 @@ function renderBattle(room) {
   renderEnemySidebar(battle);
   renderMapTiles(myPlacements, oppPlacements);
   if (battle.phase === "playing") showDamage(battle);
+  noteDeaths(battle);
   renderMoveHints(battle);
   renderAttackRange(battle);
   renderShots(battle);
