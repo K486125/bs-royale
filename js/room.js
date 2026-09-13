@@ -321,6 +321,13 @@ function unitPickCardMarkup(file, equipped) {
 }
 
 function openUnitPicker(slot) {
+  // 준비를 누른 뒤에는 유닛을 바꾸지 못한다. 전투는 장착한 유닛만 순서대로 나오므로,
+  // 준비 뒤에 해제하면 나올 유닛이 없어 시작하자마자 지게 된다.
+  const ready = currentRoom && (currentIsHost ? currentRoom.hostReady : currentRoom.guestReady);
+  if (ready) {
+    pushNotice("준비를 풀고 유닛을 바꾸세요.", { group: "unit", duration: 1800 });
+    return;
+  }
   // 지금은 모든 유닛이 항상 선택 가능하므로 보유 수 = 전체 수
   unitCountEl.textContent = `${AVATARS.length}/${AVATARS.length}`;
   const myUnits = currentRoom ? (currentIsHost ? currentRoom.hostUnits : currentRoom.guestUnits) : null;
