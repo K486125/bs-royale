@@ -509,7 +509,9 @@ async function acceptRequest(guestUid, req) {
       room.guestUid = guestUid;
       room.guestName = req.guestName;
       room.guestAvatar = req.guestAvatar;
-      room.guestUnits = req.guestUnits || room.guestUnits;
+      // 공유용에서는 빈 손으로 신청하므로 유닛 값이 아예 없을 수 있다.
+      // 트랜잭션은 undefined 를 받으면 앱이 잡지 못하는 오류를 내고 멈추므로 반드시 null 로 바꾼다.
+      room.guestUnits = req.guestUnits || room.guestUnits || null;
       room.guestReady = false;
       room.playerCount = 2;
       room.status = "full";
@@ -738,7 +740,7 @@ function leaveUpdater() {
           hostUid: room.guestUid,
           hostName: room.guestName,
           hostAvatar: room.guestAvatar,
-          hostUnits: room.guestUnits,
+          hostUnits: room.guestUnits || null,   // 빈 손 손님이면 값이 없다 (undefined 금지)
           hostReady: false,
           hostOnline: room.guestOnline !== false,
           guestUid: null,
