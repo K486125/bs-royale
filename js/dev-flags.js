@@ -8,7 +8,7 @@
 //   npm run sync-share   dev -> main  (스위치 끔)
 //   npm run sync-dev     main -> dev  (스위치 켬, 릴리스 뒤 버전을 가져올 때)
 // 배포 전에도 npm run release 가 main 의 스위치를 한 번 더 확인한다.
-export const DEV_TOOLS = false;
+export const DEV_TOOLS = true;
 
 // 개발 중 기본으로 장착해 둘 유닛 (DEV_TOOLS 가 켜져 있을 때만 쓴다).
 // 0부터 세는 번호다. [3, 4, 5] 는 004~006.
