@@ -1240,9 +1240,9 @@ function resolveSpread(fromKey, dir, spread, shotId, elapsedMs) {
   }, Math.max(0, spread.tileMs * 2 - elapsedMs));
 }
 
-// ---------- 관통 발사체 (Nita) ----------
+// ---------- 한 줄 발사체 (Nita 에너지 볼, Colt 총알) ----------
 // 한 줄로 나아가는 칸들. 판 밖에서 끝나고, 벽을 만나면 그 벽 칸까지 담고 끝난다 (wall: true).
-function pierceTiles(fromKey, dir, range) {
+function lineTiles(fromKey, dir, range) {
   const { r, c } = parseTile(fromKey);
   const out = [];
   for (let d = 1; d <= range; d++) {
@@ -1256,10 +1256,11 @@ function pierceTiles(fromKey, dir, range) {
   return out;
 }
 
-// 쏜 쪽이 발사체가 칸마다 닿는 시각에 판정한다. 그 순간 그 칸에 선 적이 맞고, 발사체는 계속 간다.
+// 쏜 쪽이 발사체가 칸마다 닿는 시각에 판정한다. 그 순간 그 칸에 선 적이 맞는다.
+// 관통이면 계속 가고, 단일이면 거기서 멈춘다.
 // 한 발에 같은 유닛이 두 번 맞지는 않는다 (발사체와 같은 방향으로 도망쳐도).
-function resolvePierce(fromKey, dir, spec, shotId, elapsedMs) {
-  const path = pierceTiles(fromKey, dir, spec.range);
+function resolveProjectile(fromKey, dir, spec, shotId, elapsedMs) {
+  const path = lineTiles(fromKey, dir, spec.range);
   const shotPath = { [`shots/${shotId}`]: null };
   const hitSlots = new Set();
   let stopped = false;
@@ -1279,22 +1280,29 @@ function resolvePierce(fromKey, dir, spec, shotId, elapsedMs) {
       if (target && !hitSlots.has(target.slot ?? 0)) {
         hitSlots.add(target.slot ?? 0);
         Object.assign(updates, hitUpdates(battle, { [step.key]: damageAt(spec, step.d) }));
+        if (!spec.projectile.pierce) stopped = true;
       }
-      if (i === path.length - 1) Object.assign(updates, shotPath);
+      if (stopped || i === path.length - 1) Object.assign(updates, shotPath);
       if (Object.keys(updates).length) write(updates);
-    }, Math.max(0, spec.pierce.tileMs * step.d - elapsedMs));
+    }, Math.max(0, spec.projectile.tileMs * step.d - elapsedMs));
   });
 }
 
-// 에너지 볼 그리기. 벽에 닿으면 가장자리에서 터지고, 사거리 끝까지 가면 흐려지며 사라진다.
-// 지나가는 칸에 적이 서 있으면 그 자리에서 작게 터진다 (볼은 계속 간다).
-function animatePierce(shot, dir, spec, age) {
+// 한 줄 발사체 그리기. 벽에 닿으면 가장자리에서 터지고, 사거리 끝까지 가면 흐려지며 사라진다.
+// 지나가는 칸에 적이 서 있으면 그 자리에서 작게 터진다. 관통이면 계속 가고, 단일이면 거기서 사라진다.
+// 모양: orb(에너지 볼, 둥글다), slug(총알, 머리가 날아가는 쪽을 향한다).
+const PROJECTILE_LOOK = {
+  orb: { className: "orb", radius: 0.42, spark: "energy" },
+  slug: { className: "slug", radius: 0.3, spark: "" }
+};
+function animateProjectile(shot, dir, spec, age) {
   const start = tileCenter(shot.from);
-  const path = pierceTiles(shot.from, dir, spec.range);
+  const path = lineTiles(shot.from, dir, spec.range);
   if (!start || !path.length) return;
   const mine = shot.by === myRole();
-  const radius = start.half * 0.42;   // 볼 지름이 칸의 42%
-  const tileMs = spec.pierce.tileMs;
+  const look = PROJECTILE_LOOK[spec.projectile.look] || PROJECTILE_LOOK.orb;
+  const radius = start.half * look.radius;
+  const tileMs = spec.projectile.tileMs;
 
   const last = path[path.length - 1];
   const lastCenter = tileCenter(last.key);
@@ -1305,9 +1313,11 @@ function animatePierce(shot, dir, spec, age) {
   if (age >= duration) return;
 
   const el = document.createElement("div");
-  el.className = "orb " + (mine ? "mine" : "foe");
+  el.className = `${look.className} ` + (mine ? "mine" : "foe");
   mapEl.appendChild(el);
-  const at = (p) => `translate(${p.x}px, ${p.y}px) translate(-50%, -50%)`;
+  // 화면에서 날아가는 방향으로 돌린다 (그림은 위를 향하게 그려져 있다).
+  const angle = Math.atan2(end.x - start.x, start.y - end.y) * 180 / Math.PI;
+  const at = (p) => `translate(${p.x}px, ${p.y}px) translate(-50%, -50%) rotate(${angle}deg)`;
   const frames = contact
     ? [{ transform: at(start) }, { transform: at(end) }]
     : [{ transform: at(start), opacity: 1 }, { transform: at(end), opacity: 1, offset: 0.85 }, { transform: at(end), opacity: 0 }];
@@ -1317,11 +1327,18 @@ function animatePierce(shot, dir, spec, age) {
     if (contact) wallSpark(contact, mine);
   };
 
+  let done = false;
   path.filter((step) => !step.wall).forEach((step) => {
     const wait = tileMs * step.d - age;
     if (wait < 0) return;
     setTimeout(() => {
-      if (enemyAt(shot, step.key)) unitSpark(tileCenter(step.key), mine, false, "energy");
+      if (done || !enemyAt(shot, step.key)) return;
+      unitSpark(tileCenter(step.key), mine, false, look.spark);
+      if (!spec.projectile.pierce) {
+        done = true;
+        anim.onfinish = null;
+        el.remove();
+      }
     }, wait);
   });
 }
@@ -1337,16 +1354,16 @@ function renderShots(battle) {
     const shot = shots[id];
     const spec = shot && attackOfNumber(shot.unit);
     const dir = shot && DIR_VEC[shot.dir];
-    if (!spec || !(spec.spread || spec.pierce) || !dir || !shot.from) { shownShots.add(id); return; }
+    if (!spec || !(spec.spread || spec.projectile) || !dir || !shot.from) { shownShots.add(id); return; }
 
-    const flightMs = spec.spread ? spec.spread.tileMs * 2 : spec.pierce.tileMs * spec.range;
+    const flightMs = spec.spread ? spec.spread.tileMs * 2 : spec.projectile.tileMs * spec.range;
     const age = serverTimeReady() && typeof shot.at === "number" ? Math.max(0, serverNow() - shot.at) : 0;
     if (age >= flightMs) { shownShots.add(id); return; }
     if (!mapViewportEl.clientWidth) return; // 판이 아직 가려져 있으면 다음에 그린다
 
     shownShots.add(id);
     if (spec.spread) animateSpread(shot, dir, spec.spread, age);
-    else animatePierce(shot, dir, spec, age);
+    else animateProjectile(shot, dir, spec, age);
   });
 }
 
@@ -1534,9 +1551,44 @@ function aimAt(dirKey) {
   renderBattle(currentRoom);
 }
 
+// 연발 공격이 다 나갈 때까지는 다음 공격을 받지 않는다 (이동은 된다).
+let burstUntil = 0;
+
+function startBurst(slot, dir, spec, firedAt) {
+  const { count, gapMs } = spec.burst;
+  burstUntil = firedAt + gapMs * (count - 1) + 50;
+  for (let i = 1; i < count; i++) {
+    setTimeout(() => fireBurstBullet(slot, dir, spec), Math.max(0, firedAt + gapMs * i - Date.now()));
+  }
+}
+
+async function fireBurstBullet(slot, dir, spec) {
+  const battle = currentRoom && currentRoom.battle;
+  if (!battle || battle.phase !== "playing") return;
+  // 그 사이 쓰러졌거나 다음 유닛으로 바뀌었으면 남은 총알은 나가지 않는다.
+  const from = activeTile(battle);
+  const unit = myUnitAt(battle, from);
+  if (!unit || (unit.slot ?? 0) !== slot) return;
+
+  const shotId = push(ref(db, `rooms/${roomId}/battle/shots`)).key;
+  const sentAt = Date.now();
+  playSelect();
+  try {
+    await update(ref(db, `rooms/${roomId}/battle`), {
+      [`shots/${shotId}`]: {
+        by: myRole(), from, dir: DIR_NAME[dir.join(",")], unit: unitNumber(unit.file), at: serverTimestamp()
+      }
+    });
+    resolveProjectile(from, dir, spec, shotId, Date.now() - sentAt);
+  } catch (err) {
+    console.error("연발 총알 실패:", err);
+  }
+}
+
 async function fireAttack() {
   const battle = currentRoom && currentRoom.battle;
   if (!battle || battle.phase !== "playing" || actionBusy()) return;
+  if (Date.now() < burstUntil) return;
 
   if (!aimDir) {
     pushNotice("화살표로 공격 방향을 먼저 정하세요.", { group: "attack", duration: 1600 });
@@ -1552,7 +1604,7 @@ async function fireAttack() {
   // 적이 없어도 쏠 수 있다 (허공에 쏘면 탄창만 줄어든다). 벽 너머는 맞지 않는다.
   const opp = battle[oppField()] || {};
   const line = attackTiles(from, aimDir, unit.file);
-  const flies = !!(spec.spread || spec.pierce);   // 발사체가 날아가는 공격은 도착할 때 판정한다
+  const flies = !!(spec.spread || spec.projectile);   // 발사체가 날아가는 공격은 도착할 때 판정한다
   const inRange = flies ? [] : untilWall(line).filter((t) => opp[t.key]);
   const targets = spec.splash ? inRange : inRange.slice(0, 1);
 
@@ -1624,7 +1676,9 @@ async function fireAttack() {
     await update(ref(db, `rooms/${roomId}/battle`), updates);
     // 총알은 쏜 순간부터 날아가고 있었으므로, 쓰기가 오간 시간만큼 당겨서 판정한다.
     if (shotId && spec.spread) resolveSpread(from, shotDir, spec.spread, shotId, Date.now() - firedAt);
-    if (shotId && spec.pierce) resolvePierce(from, shotDir, spec, shotId, Date.now() - firedAt);
+    if (shotId && spec.projectile) resolveProjectile(from, shotDir, spec, shotId, Date.now() - firedAt);
+    // 연발: 나머지 총알은 간격을 두고, 그 순간 유닛이 서 있는 칸에서 같은 방향으로 나간다.
+    if (spec.burst) startBurst(slot, shotDir, spec, firedAt);
     // 005의 튕김은 곧바로 들어가지 않고 1초 뒤에 옆 적에게 닿는다.
     // 그동안 그 적 위에 느낌표를 띄워 어디로 튀는지 보여준다.
     if (bounceTo) {
@@ -1632,7 +1686,8 @@ async function fireAttack() {
     }
     // 006처럼 자리에 남는 공격: 맞은 칸을 정해진 횟수만큼 계속 태운다.
     if (spec.dot && targets.length) scheduleDot(targets[0].key, spec.dot);
-    startActionCooldown();
+    // 연발은 총알 사이에 움직일 수 있어야 하므로 쏜 뒤 쉬는 시간을 두지 않는다 (연타는 burstUntil 이 막는다).
+    if (!spec.burst) startActionCooldown();
   } catch (err) {
     console.error("공격 실패:", err);
     writeFailNotice("공격", err);

@@ -2289,3 +2289,22 @@ body.battle-page {
 .unit-hit.energy i {
   background: radial-gradient(circle, #ffffff 0 25%, var(--core) 60%, transparent 100%);
 }
+
+/* Colt 총알. 세로로 긴 총알로, 위쪽 두 모서리만 둥글다 (머리가 날아가는 쪽).
+   스크립트가 날아가는 방향으로 돌린다. 우리 편은 파랑, 적은 빨강. */
+.slug {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: calc(var(--tile-size) * .15);
+  height: calc(var(--tile-size) * .34);
+  border-radius: 50% 50% 0 0 / 38% 38% 0 0;
+  pointer-events: none;
+  z-index: 6;
+  background: linear-gradient(90deg, #0f5fc0 0%, #6fc0ff 45%, #eaf6ff 55%, #2f86e6 100%);
+  box-shadow: 0 0 7px 2px rgba(74, 168, 255, .6), 0 2px 3px rgba(0, 0, 0, .45);
+}
+.slug.foe {
+  background: linear-gradient(90deg, #b01e10 0%, #ff8a75 45%, #fff0ec 55%, #e0412d 100%);
+  box-shadow: 0 0 7px 2px rgba(255, 90, 70, .6), 0 2px 3px rgba(0, 0, 0, .45);
+}
