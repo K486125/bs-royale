@@ -367,7 +367,6 @@ function renderMapTiles(myPlacements, oppPlacements) {
   const battle = (currentRoom && currentRoom.battle) || {};
   mapEl.classList.add("playing");
 
-  const selected = activeTile(battle);
   const burning = burningTiles(battle);
 
   mapEl.querySelectorAll(".tile").forEach((tile) => {
@@ -376,7 +375,6 @@ function renderMapTiles(myPlacements, oppPlacements) {
     const placement = mine || oppPlacements[key];
 
     tile.classList.toggle("occupied", !!placement);
-    tile.classList.toggle("unit-selected", !!selected && key === selected);
     tile.classList.toggle("mine-unit", !!mine);
     tile.classList.toggle("enemy-unit", !!placement && !mine);
 
