@@ -1,4 +1,0 @@
-# 개발용 스위치는 브랜치마다 값이 다르다.
-# 합칠 때 상대 브랜치의 값이 넘어오지 않도록, 병합에서는 "지금 브랜치의 것"을 그대로 둔다.
-# (쓰려면 한 번만: git config merge.ours.driver true)
-js/dev-flags.js merge=ours
