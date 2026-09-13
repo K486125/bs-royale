@@ -2308,3 +2308,31 @@ body.battle-page {
   background: linear-gradient(90deg, #b01e10 0%, #ff8a75 45%, #fff0ec 55%, #e0412d 100%);
   box-shadow: 0 0 7px 2px rgba(255, 90, 70, .6), 0 2px 3px rgba(0, 0, 0, .45);
 }
+
+/* Bull 탄. Shelly 의 둥근 구슬과 달리 굵고 각진 마름모꼴 조각. 우리 편은 파랑, 적은 빨강. */
+/* 바깥 상자는 위치만 맡고(스크립트가 transform 으로 옮김), 모양은 안쪽 그림을 45도 돌려 만든다. */
+.bullet.pellet {
+  width: calc(var(--tile-size) * .26);
+  height: calc(var(--tile-size) * .26);
+  background: none;
+  box-shadow: none;
+}
+.bullet.pellet::before {
+  content: "";
+  position: absolute;
+  inset: 8%;
+  border-radius: 22%;
+  transform: rotate(45deg);
+  background: linear-gradient(135deg, #eaf6ff 0 18%, #5fb4ff 40%, #0d4fa8 100%);
+  box-shadow: 0 0 9px 2px rgba(74, 168, 255, .6), inset -2px -2px 0 rgba(0, 0, 0, .25);
+}
+.bullet.pellet.foe::before {
+  background: linear-gradient(135deg, #fff0ec 0 18%, #ff7a64 40%, #9c170b 100%);
+  box-shadow: 0 0 9px 2px rgba(255, 90, 70, .6), inset -2px -2px 0 rgba(0, 0, 0, .25);
+}
+/* Bull 탄이 유닛에 맞은 자리: 둥근 구슬 조각 대신 각진 파편 */
+.unit-hit.shard i {
+  border-radius: 2px;
+  width: calc(var(--tile-size) * .11);
+  height: calc(var(--tile-size) * .11);
+}

@@ -698,9 +698,8 @@ async function moveUnit(fromKey, dir) {
     ...spendEnergy(battle, MOVE_COST)
   };
 
-  // 조준 방향은 그대로 두어, 움직인 자리에서 바로 스페이스로 쏠 수 있다.
+  // 조준 방향은 그대로 두어, 움직인 자리에서 바로 스페이스로 쏠 수 있다. 이동에는 효과음이 없다.
   moveInFlight = true;
-  playSelect();
   try {
     await update(ref(db, `rooms/${roomId}/battle`), updates);
     // 쉬는 동안에는 화살표를 감췄다가, 끝나면 다시 그려서 "이제 움직일 수 있다"를 보여준다.
@@ -1188,6 +1187,11 @@ function hitUpdates(battle, hits) {
 }
 
 // 쏜 쪽이 총알 도착 시각에 맞춰 판정한다. 그 순간 그 칸에 서 있는 적만 맞는다.
+// 바로 앞 칸(총구)을 판정하는 시각. 0 이면 쏘는 즉시(쓰기가 서버에 닿자마자).
+function muzzleTime(spread) {
+  return spread.muzzleMs ?? spread.tileMs;
+}
+
 // 단발이라 먼저 한 발이 바로 앞 칸(총구)까지 간다.
 //  1칸째 도착: 총구가 벽이면 막힌다. 총구에 적이 있으면 퍼지지 않고 그 적만 전부 맞는다 (3000).
 //  2칸째 도착: 총구가 비어 있었다면 갈라진 총알이 앞의 칸들에 떨어져, 그 칸들의 적이 한 발씩 맞는다
@@ -1195,7 +1199,7 @@ function hitUpdates(battle, hits) {
 function resolveSpread(fromKey, dir, spread, shotId, elapsedMs) {
   const cells = spreadCells(fromKey, dir, spread);
   const muzzle = cells.find((cell) => cell.muzzle);
-  const total = spread.bullets.reduce((sum, b) => sum + b.damage, 0);
+  const total = spread.pointBlank ?? spread.bullets.reduce((sum, b) => sum + b.damage, 0);
   const shotPath = { [`shots/${shotId}`]: null };
   let ended = false;
 
@@ -1230,7 +1234,7 @@ function resolveSpread(fromKey, dir, spread, shotId, elapsedMs) {
     }
     const updates = landed(battle, 1);
     if (Object.keys(updates).length) write(updates);
-  }, Math.max(0, spread.tileMs - elapsedMs));
+  }, Math.max(0, muzzleTime(spread) - elapsedMs));
 
   setTimeout(() => {
     if (ended) return;
@@ -1395,6 +1399,12 @@ function wallContact(p0, wall, bulletRadius) {
   return { t, x: p0.x + dx * t, y: p0.y + dy * t, nx, ny };
 }
 
+// 산탄 총알 모양: marble(Shelly 구슬), pellet(Bull 마름모꼴 굵은 탄).
+const SPREAD_LOOK = {
+  marble: { className: "marble", radius: 0.24, spark: "" },
+  pellet: { className: "pellet", radius: 0.3, spark: "shard" }
+};
+
 function animateSpread(shot, dir, spread, age) {
   const start = tileCenter(shot.from);
   if (!start) return;
@@ -1403,14 +1413,17 @@ function animateSpread(shot, dir, spread, age) {
   const mid = muzzle ? tileCenter(muzzle.key) : null;
   if (!mid) return; // 바로 앞이 판 밖이면 날아갈 곳이 없다
   const mine = shot.by === myRole();
-  const radius = start.half * 0.24;   // 총알 지름이 칸의 24%라서, 반지름은 칸 절반의 24%
+  const look = SPREAD_LOOK[spread.look] || SPREAD_LOOK.marble;
+  const radius = start.half * look.radius;
+  // 바로 앞 칸까지 가는 시간. 즉발(0)이어도 총알은 캐릭터에서 나가 끝 칸 도착 시간의 절반에 총구를 지난다.
+  const firstMs = muzzleTime(spread) > 0 ? muzzleTime(spread) : spread.tileMs;
 
   // 한 구간을 날아가는 총알 하나. skip 은 이미 지나간 시간(늦게 그리기 시작한 경우).
   // 끝나면 onEnd(late) — late 는 화면에 그리기도 전에 이미 끝났던 경우라 이펙트를 생략한다.
   const leg = (from, to, duration, skip, onEnd) => {
     if (skip >= duration) { onEnd(true); return; }
     const el = document.createElement("div");
-    el.className = "bullet " + (mine ? "mine" : "foe");
+    el.className = `bullet ${look.className} ` + (mine ? "mine" : "foe");
     mapEl.appendChild(el);
     const at = (p) => `translate(${p.x}px, ${p.y}px) translate(-50%, -50%)`;
     const anim = el.animate([{ transform: at(from) }, { transform: at(to) }],
@@ -1421,29 +1434,36 @@ function animateSpread(shot, dir, spread, age) {
   // 1) 단발: 총알 한 발이 바로 앞 칸까지 날아간다. 그 칸이 벽이면 가장자리에서 멈춘다.
   if (isWall(muzzle.key)) {
     const contact = wallContact(start, mid, radius);
-    leg(start, contact, spread.tileMs * contact.t, age, (late) => { if (!late) wallSpark(contact, mine); });
+    leg(start, contact, firstMs * contact.t, age, (late) => { if (!late) wallSpark(contact, mine); });
     return;
   }
 
-  leg(start, mid, spread.tileMs, age, (late) => {
+  // 즉발 근접(Bull): 쏘는 순간 바로 앞에 적이 있으면 총알이 날아갈 틈 없이 그 자리에서 터진다.
+  if (muzzleTime(spread) === 0 && enemyAt(shot, muzzle.key)) {
+    if (age < 400) unitSpark(mid, mine, true, look.spark);
+    return;
+  }
+
+  leg(start, mid, firstMs, age, (late) => {
     // 2) 바로 앞 칸에 적이 서 있으면 퍼지지 않고 그 적에게 전부 맞는다 (근접).
-    if (enemyAt(shot, muzzle.key)) {
-      if (!late) unitSpark(mid, mine, true);
+    //    즉발이면 쏘는 순간 이미 판정이 끝났으므로 여기서는 다시 보지 않는다.
+    if (muzzleTime(spread) > 0 && enemyAt(shot, muzzle.key)) {
+      if (!late) unitSpark(mid, mine, true, look.spark);
       return;
     }
     // 3) 비어 있으면 거기서 갈라져 앞의 칸들로 퍼진다. 한 발에 한 칸.
-    const skip = Math.max(0, age - spread.tileMs);
+    const skip = Math.max(0, age - firstMs);
     cells.filter((cell) => !cell.muzzle).forEach((cell) => {
       const end = tileCenter(cell.key);
       if (!end) return;
-      const duration = spread.tileMs * Math.max(1, cell.d - 1);
+      const duration = Math.max(1, spread.tileMs * cell.d - firstMs);
       if (isWall(cell.key)) {
         const contact = wallContact(mid, end, radius);
         leg(mid, contact, duration * contact.t, skip, (lateHit) => { if (!lateHit) wallSpark(contact, mine); });
         return;
       }
       leg(mid, end, duration, skip, (lateHit) => {
-        if (!lateHit && enemyAt(shot, cell.key)) unitSpark(end, mine, false);
+        if (!lateHit && enemyAt(shot, cell.key)) unitSpark(end, mine, false, look.spark);
       });
     });
   });
@@ -1896,9 +1916,10 @@ function playOpponentPlacementSfx(oppPlacements) {
     knownOppKeys = new Set(keys);
     return;
   }
-  const added = keys.some((k) => !knownOppKeys.has(k));
+  // 상대 유닛이 새로 나왔을 때만 소리를 낸다. 칸만 바뀐 것(이동)은 조용히 넘어간다.
+  const appeared = keys.length > knownOppKeys.size;
   knownOppKeys = new Set(keys);
-  if (added) playSelect();
+  if (appeared) playSelect();
 }
 
 function renderBattle(room) {
