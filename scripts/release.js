@@ -57,7 +57,34 @@ try {
 // 3) 버전 올리기 (package.json 수정 + git commit + git tag vX.Y.Z 까지 npm이 알아서 함)
 run(`npm version ${bump} -m "chore: release v%s"`);
 
-// 4) 빌드 + GitHub Release 생성/업로드 (태그의 버전을 그대로 사용)
+const version = require("../package.json").version;
+const tag = `v${version}`;
+const REPO = "K486125/bs-royale";
+
+// 초안은 태그로 찾을 수 없어서(아직 공개되지 않은 태그), electron-builder 와 같이 목록에서 찾는다.
+function findReleases() {
+  const out = runCapture(`${gh} api repos/${REPO}/releases --paginate --jq ".[] | select(.tag_name == \\"${tag}\\") | [.id, .draft] | @tsv"`);
+  return out.split(NEWLINE).map((l) => l.trim()).filter(Boolean).map((line) => {
+    const [id, draft] = line.split(String.fromCharCode(9));
+    return { id, draft: draft === "true" };
+  });
+}
+
+// 4) 초안을 먼저 하나 만들어 둔다.
+//    electron-builder 는 설치 파일과 blockmap 을 동시에 올리는데, 초안이 없으면 둘이 각자 초안을 만들어
+//    파일이 두 초안에 나뉘어 버린다(1.0.8 때 실제로 그랬다). 미리 있으면 둘 다 그 초안에 올린다.
+if (findReleases().length === 0) {
+  runCapture(`${gh} api -X POST repos/${REPO}/releases -f tag_name=${tag} -f name=${version} -F draft=true`);
+}
+{
+  const found = findReleases();
+  if (found.length !== 1) {
+    console.error(`\n${tag} 릴리스가 ${found.length}개 있습니다. GitHub Releases 에서 하나만 남기고 다시 실행하세요.`);
+    process.exit(1);
+  }
+}
+
+// 5) 빌드 + 업로드 (태그의 버전을 그대로 사용)
 //    100MB짜리 설치 파일 업로드가 중간에 끊기는 일이 있어서, 실패하면 다시 시도한다.
 //    (이미 올라간 파일은 덮어쓰므로 다시 돌려도 안전하다)
 const buildEnv = { env: { ...process.env, GH_TOKEN: ghToken } };
@@ -76,13 +103,10 @@ if (!published) {
   process.exit(1);
 }
 
-// 5) 정말 다 올라갔는지 확인한다.
+// 6) 정말 다 올라갔는지 확인한다.
 //    릴리스는 숨긴 초안(draft)으로 만들어진다. 초안은 사용자에게 보이지 않으므로,
 //    파일이 반쯤 올라간 사이에 누가 업데이트를 확인해도 "latest.yml 이 없다"는 오류가 나지 않는다.
 //    (예전에는 공개부터 되고 파일이 뒤따라 올라가, 약 1분 동안 업데이트 확인이 실패했다)
-const version = require("../package.json").version;
-const tag = `v${version}`;
-const REPO = "K486125/bs-royale";
 const localFile = {
   [`BS-Royale-Setup-${version}.exe`]: `dist/BS Royale Setup ${version}.exe`,
   [`BS-Royale-Setup-${version}.exe.blockmap`]: `dist/BS Royale Setup ${version}.exe.blockmap`,
@@ -90,13 +114,13 @@ const localFile = {
 };
 const required = Object.keys(localFile);
 
-// 초안은 태그로 찾을 수 없어서(아직 공개되지 않은 태그), electron-builder 와 같이 목록에서 찾는다.
 function findRelease() {
-  const out = runCapture(`${gh} api repos/${REPO}/releases --paginate --jq ".[] | select(.tag_name == \\"${tag}\\") | [.id, .draft] | @tsv"`);
-  const line = out.split(NEWLINE).map((l) => l.trim()).find(Boolean);
-  if (!line) return null;
-  const [id, draft] = line.split(String.fromCharCode(9));
-  return { id, draft: draft === "true" };
+  const found = findReleases();
+  if (found.length > 1) {
+    console.error(`\n${tag} 릴리스가 ${found.length}개로 나뉘었습니다. GitHub Releases 에서 확인하세요.`);
+    process.exit(1);
+  }
+  return found[0] || null;
 }
 
 function uploadedAssets(id) {
@@ -114,7 +138,9 @@ let missing = required.filter((name) => !uploadedAssets(release.id).includes(nam
 if (missing.length > 0) {
   console.log(`\n빠진 파일이 있어 직접 올립니다: ${missing.join(", ")}`);
   for (const name of missing) {
-    run(`${gh} release upload ${tag} "${localFile[name]}" --clobber`);
+    // 이 릴리스(id)에 정확한 이름으로 올린다. (gh release upload 는 파일 이름의 공백을 점으로 바꿔 올리고,
+    // 초안은 태그로 고를 수도 없다)
+    runCapture(`${gh} api -X POST "https://uploads.github.com/repos/${REPO}/releases/${release.id}/assets?name=${name}" -H "Content-Type: application/octet-stream" --input "${localFile[name]}"`);
   }
   missing = required.filter((name) => !uploadedAssets(release.id).includes(name));
   if (missing.length > 0) {
@@ -125,7 +151,7 @@ if (missing.length > 0) {
 }
 console.log(`\n업로드 확인 완료: ${required.join(", ")}`);
 
-// 6) 커밋과 태그를 원격에 반영
+// 7) 커밋과 태그를 원격에 반영
 //    (릴리스를 만들 때 GitHub이 태그를 먼저 만들어두는 경우가 있어, 태그 푸시 실패는 넘어간다)
 run("git push");
 try {
@@ -134,7 +160,7 @@ try {
   console.log("(태그는 이미 원격에 있습니다)");
 }
 
-// 7) 파일 셋이 모두 올라간 것을 확인했으니 이제 공개한다. 이 순간부터 사용자에게 업데이트가 간다.
+// 8) 파일 셋이 모두 올라간 것을 확인했으니 이제 공개한다. 이 순간부터 사용자에게 업데이트가 간다.
 if (release.draft) {
   try {
     runCapture(`${gh} api -X PATCH repos/${REPO}/releases/${release.id} -F draft=false -f make_latest=true`);
