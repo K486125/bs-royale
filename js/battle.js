@@ -1188,9 +1188,10 @@ function hitUpdates(battle, hits) {
 }
 
 // 쏜 쪽이 총알 도착 시각에 맞춰 판정한다. 그 순간 그 칸에 서 있는 적만 맞는다.
-//  1칸째 도착: 총구가 벽이면 모든 총알이 막힌다. 총구에 적이 있으면 모든 총알이 그 적에게 들어간다.
-//              아니면 옆 두 칸의 총알이 떨어진다.
-//  2칸째 도착: 다섯 칸의 총알이 떨어진다 (도착 칸이 벽이면 그 총알은 막힌다).
+// 단발이라 먼저 한 발이 바로 앞 칸(총구)까지 간다.
+//  1칸째 도착: 총구가 벽이면 막힌다. 총구에 적이 있으면 퍼지지 않고 그 적만 전부 맞는다 (3000).
+//  2칸째 도착: 총구가 비어 있었다면 갈라진 총알이 앞의 칸들에 떨어져, 그 칸들의 적이 한 발씩 맞는다
+//              (도착 칸이 벽이면 그 총알은 막힌다).
 function resolveSpread(fromKey, dir, spread, shotId, elapsedMs) {
   const cells = spreadCells(fromKey, dir, spread);
   const muzzle = cells.find((cell) => cell.muzzle);
@@ -1294,64 +1295,52 @@ function animateSpread(shot, dir, spread, age) {
   const cells = spreadCells(shot.from, dir, spread);
   const muzzle = cells.find((cell) => cell.muzzle);
   const mid = muzzle ? tileCenter(muzzle.key) : null;
+  if (!mid) return; // 바로 앞이 판 밖이면 날아갈 곳이 없다
   const mine = shot.by === myRole();
   const radius = start.half * 0.24;   // 총알 지름이 칸의 24%라서, 반지름은 칸 절반의 24%
-  const at = (p) => `translate(${p.x}px, ${p.y}px) translate(-50%, -50%)`;
-  const muzzleWall = muzzle && isWall(muzzle.key);
 
-  const bullets = [];
-  const sparked = new Set();   // 같은 자리에 여러 발이 부딪혀도 불꽃은 한 번만
-  cells.filter((cell) => !cell.muzzle).forEach((cell) => {
-    const end = tileCenter(cell.key);
-    if (!end) return;
-
-    // 지나가는 점과 그 점에 닿는 시각. 1칸째 총알은 곧장, 2칸째 총알은 총구를 지나 퍼진다.
-    let points = cell.d === 1 || !mid
-      ? [{ p: start, ms: 0 }, { p: end, ms: spread.tileMs * cell.d }]
-      : [{ p: start, ms: 0 }, { p: mid, ms: spread.tileMs }, { p: end, ms: spread.tileMs * 2 }];
-
-    // 벽에 닿으면 그 앞 가장자리에서 멈춘다. 총구가 벽이면 모든 총알이 첫 구간에서 멈춘다.
-    let hit = null;
-    if (muzzleWall && mid) {
-      const contact = wallContact(start, mid, radius);
-      hit = contact;
-      points = [points[0], { p: contact, ms: spread.tileMs * contact.t }];
-    } else if (isWall(cell.key)) {
-      const from = points[points.length - 2];
-      const last = points[points.length - 1];
-      const contact = wallContact(from.p, end, radius);
-      hit = contact;
-      points[points.length - 1] = { p: contact, ms: from.ms + (last.ms - from.ms) * contact.t };
-    }
-
-    const duration = Math.max(1, points[points.length - 1].ms);
+  // 한 구간을 날아가는 총알 하나. skip 은 이미 지나간 시간(늦게 그리기 시작한 경우).
+  // 끝나면 onEnd(late) — late 는 화면에 그리기도 전에 이미 끝났던 경우라 이펙트를 생략한다.
+  const leg = (from, to, duration, skip, onEnd) => {
+    if (skip >= duration) { onEnd(true); return; }
     const el = document.createElement("div");
     el.className = "bullet " + (mine ? "mine" : "foe");
     mapEl.appendChild(el);
-    const frames = points.map(({ p, ms }) => ({ transform: at(p), offset: ms / duration }));
-    const anim = el.animate(frames, { duration, delay: -age, fill: "forwards", easing: "linear" });
-    anim.onfinish = () => {
-      el.remove();
-      // 벽에 막히지 않고 도착했는데 그 칸에 적이 서 있으면, 구슬이 부딪혀 흩어진다.
-      if (!hit && enemyAt(shot, cell.key)) unitSpark(end, mine, false);
-    };
-    bullets.push(el);
+    const at = (p) => `translate(${p.x}px, ${p.y}px) translate(-50%, -50%)`;
+    const anim = el.animate([{ transform: at(from) }, { transform: at(to) }],
+      { duration: Math.max(1, duration), delay: -skip, fill: "forwards", easing: "linear" });
+    anim.onfinish = () => { el.remove(); onEnd(false); };
+  };
 
-    if (hit && duration > age) {
-      const spot = `${Math.round(hit.x)},${Math.round(hit.y)}`;
-      if (!sparked.has(spot)) {
-        sparked.add(spot);
-        setTimeout(() => wallSpark(hit, mine), duration - age);
-      }
+  // 1) 단발: 총알 한 발이 바로 앞 칸까지 날아간다. 그 칸이 벽이면 가장자리에서 멈춘다.
+  if (isWall(muzzle.key)) {
+    const contact = wallContact(start, mid, radius);
+    leg(start, contact, spread.tileMs * contact.t, age, (late) => { if (!late) wallSpark(contact, mine); });
+    return;
+  }
+
+  leg(start, mid, spread.tileMs, age, (late) => {
+    // 2) 바로 앞 칸에 적이 서 있으면 퍼지지 않고 그 적에게 전부 맞는다 (근접).
+    if (enemyAt(shot, muzzle.key)) {
+      if (!late) unitSpark(mid, mine, true);
+      return;
     }
+    // 3) 비어 있으면 거기서 갈라져 앞의 칸들로 퍼진다. 한 발에 한 칸.
+    const skip = Math.max(0, age - spread.tileMs);
+    cells.filter((cell) => !cell.muzzle).forEach((cell) => {
+      const end = tileCenter(cell.key);
+      if (!end) return;
+      const duration = spread.tileMs * Math.max(1, cell.d - 1);
+      if (isWall(cell.key)) {
+        const contact = wallContact(mid, end, radius);
+        leg(mid, contact, duration * contact.t, skip, (lateHit) => { if (!lateHit) wallSpark(contact, mine); });
+        return;
+      }
+      leg(mid, end, duration, skip, (lateHit) => {
+        if (!lateHit && enemyAt(shot, cell.key)) unitSpark(end, mine, false);
+      });
+    });
   });
-
-  // 총구에 쏜 쪽의 적이 있으면, 총알이 모두 거기서 멈추고 한데 부딪혀 크게 흩어진다 (근접 공격).
-  setTimeout(() => {
-    if (!muzzle || muzzleWall || !enemyAt(shot, muzzle.key)) return;
-    bullets.forEach((el) => { el.getAnimations().forEach((a) => { a.onfinish = null; }); el.remove(); });
-    unitSpark(mid, mine, true);
-  }, Math.max(0, spread.tileMs - age));
 }
 
 // 그 순간 그 칸에 쏜 쪽의 적이 서 있는지 (그림은 각자 자기 화면의 판을 보고 정한다).
