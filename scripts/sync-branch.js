@@ -37,7 +37,25 @@ try {
   const out = git("merge", target.from, "--no-edit");
   console.log(out);
 } catch (err) {
-  fail("합치는 중 충돌이 났습니다. 직접 해결한 뒤 다시 실행하세요.");
+  // 스위치 파일만 부딪혔다면 스스로 푼다: 넘어오는 쪽 내용을 받고, 스위치만 이 브랜치 값으로 맞춘다.
+  // 다른 파일이 부딪혔으면 손대지 않고 합치기 전 상태로 되돌린 뒤 멈춘다 (반쯤 합쳐진 채 두지 않는다).
+  let conflicted = [];
+  try {
+    conflicted = git("diff", "--name-only", "--diff-filter=U").split(String.fromCharCode(10)).map((x) => x.trim()).filter(Boolean);
+  } catch (e) { /* 합치기 자체가 시작되지 않은 경우 */ }
+
+  const onlyFlags = conflicted.length === 1 && conflicted[0] === "js/dev-flags.js";
+  if (!onlyFlags) {
+    try { git("merge", "--abort"); } catch (e) { /* 이미 정리됨 */ }
+    try { git("checkout", before); } catch (e) { /* 그대로 둔다 */ }
+    fail("합치는 중 충돌이 났습니다" +
+      (conflicted.length ? ` (${conflicted.join(", ")})` : "") +
+      ". 합치기 전 상태로 되돌렸습니다. 직접 해결한 뒤 다시 실행하세요.");
+  }
+  git("checkout", "--theirs", "js/dev-flags.js");
+  git("add", "js/dev-flags.js");
+  git("commit", "--no-edit");
+  console.log("스위치 파일의 충돌을 넘어온 쪽 내용으로 풀었습니다 (값은 아래에서 맞춥니다).");
 }
 
 const want = `export const DEV_TOOLS = ${target.value};`;
