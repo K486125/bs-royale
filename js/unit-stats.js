@@ -68,7 +68,13 @@ const ATTACK = {
       ]
     }
   },
-  "005": { range: 3, splash: false, damage: 2000, bounce: 0.6 },  // 자기 칸 포함 4타일, 한 번 튕김
+  // Jessie: 전기 볼. 자기 칸 포함 4타일, 최대 거리까지 1.75초. 처음 닿은 적(2000)이나 벽, 사거리 끝에서 멈추고
+  // 주변 여덟 칸 중 한 곳으로 1초에 걸쳐 튕긴다 (옆에 적이 있으면 그 적, 없으면 판 안의 아무 칸).
+  // 튕겨 닿은 칸에 적이 서 있으면 60% (1200).
+  "005": {
+    range: 3, splash: false, damage: 2000, bounce: 0.6,
+    projectile: { tileMs: 1750 / 3, pierce: false, look: "zap" }
+  },
   "006": {
     range: 4, splash: false, damage: 1900,                  // 자기 칸 포함 5타일, 단일
     dot: { damage: 350, ticks: 3, everyMs: 1000 }           // 맞은 자리에 3초간 1초마다 350

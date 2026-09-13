@@ -51,7 +51,7 @@ const MAX_AMMO = 3;            // 유닛마다 가지는 탄창 수
 // 연속으로 밀어 넣으면 서버에 반영되기 전 상태로 다음 이동을 계산하게 되어 어긋날 수 있다.
 const ACTION_GUARD_MS = 250;    // 연타로 같은 행동이 두 번 나가지 않게 하는 최소 간격
                                 // (진짜 제동은 에너지가 건다)
-const BOUNCE_DELAY_MS = 1500;   // 005의 튕김이 옆 적에게 닿기까지 (느낌표가 떠 있는 시간이기도 하다)
+const BOUNCE_DELAY_MS = 1000;   // 005의 전기 볼이 튕겨 닿기까지 (느낌표가 떠 있는 시간이기도 하다)
 const BURN_VISIBLE_MS = 3400;   // 006이 붙인 불이 남아 있는 시간
 
 const TURN_IDLE_MS = 20000;    // 이 시간 동안 아무 것도 안 하면 매치가 끊긴다
@@ -1292,11 +1292,126 @@ function resolveProjectile(fromKey, dir, spec, shotId, elapsedMs) {
   });
 }
 
+// 튕기는 전기 볼 (Jessie). 한 줄로 날아가다 처음 닿은 적, 벽, 사거리 끝에서 멈추고 한 번 튕긴다.
+//  - 적에 닿으면 그 적이 맞고, 그 칸에서 튕긴다.
+//  - 벽에 닿으면 벽 바로 앞 칸에서 튕긴다 (벽이 바로 앞이면 쏜 자리에서).
+//  - 아무 데도 안 닿으면 사거리 끝 칸에서 튕긴다.
+// 튕길 칸은 주변 여덟 칸 중 판 안의 칸이다. 옆에 적이 있으면 그중 무작위, 없으면 아무 칸이나 무작위.
+// 쏜 쪽이 정해서 느낌표 표시(bounceMark)에 출발 칸과 함께 적으므로 양쪽 화면에 같은 튕김이 보인다.
+function resolveBounceShot(fromKey, dir, spec, shotId, elapsedMs) {
+  const path = lineTiles(fromKey, dir, spec.range);
+  const tileMs = spec.projectile.tileMs;
+  let done = false;
+  const write = (updates) => update(ref(db, `rooms/${roomId}/battle`), updates)
+    .catch((err) => console.error("전기 볼 판정 실패:", err));
+
+  const impact = (battle, originKey, hitDamage) => {
+    const updates = { [`shots/${shotId}`]: null };
+    if (hitDamage) Object.assign(updates, hitUpdates(battle, { [originKey]: hitDamage }));
+
+    // 주변 여덟 칸(판 안쪽만, 튕기는 칸 자신은 빠진다).
+    const opp = battle[oppField()] || {};
+    const around = neighborTiles(originKey);
+    const enemies = around.filter((key) => opp[key]);
+    const pool = enemies.length ? enemies : around;
+    const to = pool[Math.floor(Math.random() * pool.length)];
+    if (to) {
+      updates.bounceMark = { key: to, from: originKey, by: myRole(), at: serverTimestamp() };
+      const bounceDamage = Math.round(damageAt(spec, 1) * spec.bounce);
+      setTimeout(() => applyLateDamage(to, bounceDamage, { bounceMark: null }), BOUNCE_DELAY_MS);
+    }
+    write(updates);
+  };
+
+  const live = () => {
+    const battle = currentRoom && currentRoom.battle;
+    return battle && battle.phase === "playing" ? battle : null;
+  };
+
+  if (!path.length) {
+    // 바로 앞이 판 밖이면 쏜 자리에서 바로 튕긴다.
+    setTimeout(() => { const battle = live(); if (battle) impact(battle, fromKey, 0); }, 0);
+    return;
+  }
+  path.forEach((step, i) => {
+    // 벽은 칸 한가운데가 아니라 가장자리에서 막히므로 반 칸 먼저 닿는다.
+    const reachMs = step.wall ? tileMs * (step.d - 0.5) : tileMs * step.d;
+    setTimeout(() => {
+      if (done) return;
+      const battle = live();
+      if (!battle) { done = true; return; }
+      if (step.wall) {
+        done = true;
+        impact(battle, i === 0 ? fromKey : path[i - 1].key, 0);
+        return;
+      }
+      if ((battle[oppField()] || {})[step.key]) {
+        done = true;
+        impact(battle, step.key, damageAt(spec, step.d));
+        return;
+      }
+      if (i === path.length - 1) {
+        done = true;
+        impact(battle, step.key, 0);
+      }
+    }, Math.max(0, reachMs - elapsedMs));
+  });
+}
+
+// 튕김 그리기. 느낌표 표시에 적힌 출발 칸에서 튕길 칸까지 1초에 날아간다.
+// 벽이면 가장자리에서 터지고, 적이 서 있으면 맞은 이펙트, 허공이면 흐려지며 사라진다.
+let shownBounce = null;
+function renderBounce(battle) {
+  const mark = battle.bounceMark;
+  if (!mark) { shownBounce = null; return; }
+  if (!mark.from || !mark.key || typeof mark.at !== "number") return;
+  // 서버 시각이 확정되며 at 값이 바뀌어도 같은 튕김을 두 번 그리지 않도록 칸으로만 구분한다.
+  const id = `${mark.by}:${mark.from}>${mark.key}`;
+  if (shownBounce === id) return;
+  const age = serverTimeReady() ? Math.max(0, serverNow() - mark.at) : 0;
+  if (age >= BOUNCE_DELAY_MS) { shownBounce = id; return; }
+  if (!mapViewportEl.clientWidth) return;
+  shownBounce = id;
+
+  const start = tileCenter(mark.from);
+  const target = tileCenter(mark.key);
+  if (!start || !target) return;
+  const mine = mark.by === myRole();
+  const look = PROJECTILE_LOOK.zap;
+  const contact = isWall(mark.key) ? wallContact(start, target, start.half * look.radius) : null;
+  const end = contact || target;
+  const duration = Math.max(1, BOUNCE_DELAY_MS * (contact ? contact.t : 1));
+  if (age >= duration) return;
+
+  const el = document.createElement("div");
+  el.className = `${look.className} ` + (mine ? "mine" : "foe");
+  mapEl.appendChild(el);
+  const at = (p) => `translate(${p.x}px, ${p.y}px) translate(-50%, -50%)`;
+  const anim = el.animate([{ transform: at(start) }, { transform: at(end) }],
+    { duration, delay: -age, fill: "forwards", easing: "ease-out" });
+  anim.onfinish = () => {
+    el.remove();
+    if (contact) { wallSpark(contact, mine); return; }
+    if (enemyAt(mark, mark.key)) unitSpark(target, mine, false, look.spark);
+    else fadeSpark(target, mine);
+  };
+}
+
+// 허공에 떨어진 전기 볼: 작게 번쩍하고 사라진다.
+function fadeSpark(center, mine) {
+  const el = document.createElement("div");
+  el.className = "zap-fizzle " + (mine ? "mine" : "foe");
+  el.style.transform = `translate(${center.x}px, ${center.y}px) translate(-50%, -50%)`;
+  mapEl.appendChild(el);
+  setTimeout(() => el.remove(), 420);
+}
+
 // 한 줄 발사체 그리기. 벽에 닿으면 가장자리에서 터지고, 사거리 끝까지 가면 흐려지며 사라진다.
 // 지나가는 칸에 적이 서 있으면 그 자리에서 작게 터진다. 관통이면 계속 가고, 단일이면 거기서 사라진다.
 // 모양: orb(에너지 볼, 둥글다), slug(총알, 머리가 날아가는 쪽을 향한다).
 const PROJECTILE_LOOK = {
   orb: { className: "orb", radius: 0.42, spark: "energy" },
+  zap: { className: "zap", radius: 0.58, spark: "energy" },
   slug: { className: "slug", radius: 0.3, spark: "" }
 };
 function animateProjectile(shot, dir, spec, age) {
@@ -1322,7 +1437,7 @@ function animateProjectile(shot, dir, spec, age) {
   // 화면에서 날아가는 방향으로 돌린다 (그림은 위를 향하게 그려져 있다).
   const angle = Math.atan2(end.x - start.x, start.y - end.y) * 180 / Math.PI;
   const at = (p) => `translate(${p.x}px, ${p.y}px) translate(-50%, -50%) rotate(${angle}deg)`;
-  const frames = contact
+  const frames = contact || spec.bounce
     ? [{ transform: at(start) }, { transform: at(end) }]
     : [{ transform: at(start), opacity: 1 }, { transform: at(end), opacity: 1, offset: 0.85 }, { transform: at(end), opacity: 0 }];
   const anim = el.animate(frames, { duration, delay: -age, fill: "forwards", easing: "linear" });
@@ -1665,27 +1780,10 @@ async function fireAttack() {
 
   targets.forEach((hit) => hurt(hit.key, damageAt(spec, hit.distance)));
 
-  // 005처럼 튕기는 공격: 맞은 칸을 둘러싼 여덟 칸(대각선 포함) 중 적이 선 자리로 한 번 더 간다.
-  // 옆에 적이 여럿이면 그중 무작위, 하나뿐이면 그 적, 아무도 없으면 튕길 곳이 없어 끝난다.
-  let bounceTo = null;
-  updates.bounceMark = null;   // 지난 표시는 지우고 시작한다
   // 006처럼 자리를 태우는 공격은 그 칸을 불붙은 자리로 적어둔다 (양쪽 화면에 불이 보인다)
   if (spec.dot && targets.length) {
     updates[`burns/${targets[0].key}`] = { at: serverTimestamp(), by: myRole() };
   }
-  if (spec.bounce && targets.length) {
-    const hitKey = targets[0].key;
-    const around = neighborTiles(hitKey).filter((key) => opp[key]);
-    const pick = around.length > 1
-      ? around[Math.floor(Math.random() * around.length)]
-      : around[0];
-    if (pick) {
-      bounceTo = { key: pick, damage: Math.round(damageAt(spec, targets[0].distance) * spec.bounce) };
-      // 첫 피해와 같은 순간에 표시가 뜨도록 같은 쓰기에 담는다.
-      updates.bounceMark = { key: pick, at: serverTimestamp() };
-    }
-  }
-
   attackInFlight = true;
   playSelect();
   const firedAt = Date.now();
@@ -1696,14 +1794,10 @@ async function fireAttack() {
     await update(ref(db, `rooms/${roomId}/battle`), updates);
     // 총알은 쏜 순간부터 날아가고 있었으므로, 쓰기가 오간 시간만큼 당겨서 판정한다.
     if (shotId && spec.spread) resolveSpread(from, shotDir, spec.spread, shotId, Date.now() - firedAt);
-    if (shotId && spec.projectile) resolveProjectile(from, shotDir, spec, shotId, Date.now() - firedAt);
+    if (shotId && spec.projectile && spec.bounce) resolveBounceShot(from, shotDir, spec, shotId, Date.now() - firedAt);
+    else if (shotId && spec.projectile) resolveProjectile(from, shotDir, spec, shotId, Date.now() - firedAt);
     // 연발: 나머지 총알은 간격을 두고, 그 순간 유닛이 서 있는 칸에서 같은 방향으로 나간다.
     if (spec.burst) startBurst(slot, shotDir, spec, firedAt);
-    // 005의 튕김은 곧바로 들어가지 않고 1초 뒤에 옆 적에게 닿는다.
-    // 그동안 그 적 위에 느낌표를 띄워 어디로 튀는지 보여준다.
-    if (bounceTo) {
-      setTimeout(() => applyLateDamage(bounceTo.key, bounceTo.damage, { bounceMark: null }), BOUNCE_DELAY_MS);
-    }
     // 006처럼 자리에 남는 공격: 맞은 칸을 정해진 횟수만큼 계속 태운다.
     if (spec.dot && targets.length) scheduleDot(targets[0].key, spec.dot);
     // 연발은 총알 사이에 움직일 수 있어야 하므로 쏜 뒤 쉬는 시간을 두지 않는다 (연타는 burstUntil 이 막는다).
@@ -1956,6 +2050,7 @@ function renderBattle(room) {
   renderMoveHints(battle);
   renderAttackRange(battle);
   renderShots(battle);
+  renderBounce(battle);
   renderCountdown(battle);
   renderTurnBar(battle);
   updateCamera(battle);
