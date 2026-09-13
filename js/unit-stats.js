@@ -32,7 +32,7 @@ const ATTACK = {
   }
 };
 
-// 유닛 유형. 이동에 드는 에너지는 유형이 정한다.
+// 유닛 유형. 공격에 드는 에너지는 유형이 정한다.
 const ROLE = {
   "001": "dealer",     // Shelly
   "002": "dealer",     // Nita
@@ -41,7 +41,7 @@ const ROLE = {
   "005": "controller", // Jessie
   "006": "sniper"      // Brock
 };
-const MOVE_COST_BY_ROLE = {
+const ATTACK_COST_BY_ROLE = {
   dealer: 20,      // 대미지 딜러
   controller: 10,  // 컨트롤러
   tank: 30,        // 탱커
@@ -49,18 +49,11 @@ const MOVE_COST_BY_ROLE = {
 };
 
 // 행동에 드는 에너지. 에너지는 사람마다 하나이고(초당 10, 최대 100),
-// 이동 비용은 유형별, 공격 비용은 유닛별이다.
+// 이동은 모든 유닛이 같고, 공격은 유형별이다.
 const MAX_ENERGY = 100;
 const ENERGY_PER_SEC = 10;
-const ATTACK_COST = {
-  "001": 15,
-  "002": 20,
-  "003": 25,
-  "004": 30,
-  "005": 25,
-  "006": 20
-};
-const FALLBACK_COST = { move: 25, attack: 25 };
+const MOVE_COST = 10;
+const FALLBACK_ATTACK_COST = 25;
 
 // 탄창 한 발이 저절로 차는 데 걸리는 시간. 유닛마다 다르다.
 // 재장전은 더 이상 에너지를 쓰지 않고, 쏘고 나면 시간이 알아서 채워준다.
@@ -79,8 +72,8 @@ export { MAX_ENERGY, ENERGY_PER_SEC };
 // action: "move" | "attack"
 export function costOf(file, action) {
   const num = file ? unitNumber(file) : null;
-  if (action === "move") return MOVE_COST_BY_ROLE[ROLE[num]] || FALLBACK_COST.move;
-  if (action === "attack") return ATTACK_COST[num] || FALLBACK_COST.attack;
+  if (action === "move") return MOVE_COST;
+  if (action === "attack") return ATTACK_COST_BY_ROLE[ROLE[num]] || FALLBACK_ATTACK_COST;
   return 0;
 }
 
