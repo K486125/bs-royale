@@ -352,15 +352,16 @@ unitPickerRow.addEventListener("wheel", (e) => {
 async function selectUnit(slot, file) {
   playSelect();
   const field = currentIsHost ? "hostUnits" : "guestUnits";
-  const roomRef = ref(db, `rooms/${roomId}`);
 
-  await runTransaction(roomRef, (room) => {
-    if (!room) return room;
-    const existing = room[field] || {};
-    const units = [0, 1, 2].map((i) => (i === slot ? file : (existing[i] != null ? existing[i] : null)));
-    room[field] = units;
-    return room;
-  });
+  try {
+    // 내 칸 하나만 쓴다. 방 전체를 다시 쓰면 상대의 준비 상태까지 함께 실려서
+    // "준비 상태는 본인만" 규칙에 통째로 거부된다 (1.0.6에서 유닛 선택이 안 되던 원인).
+    await update(ref(db, `rooms/${roomId}`), { [`${field}/${slot}`]: file || null });
+  } catch (err) {
+    console.error("유닛 장착 실패:", err);
+    pushNotice("유닛을 바꾸지 못했습니다.", { group: "unit", duration: 2000 });
+    return;
+  }
 
   unitModal.classList.add("hidden");
 }
@@ -499,6 +500,19 @@ function escapeHtml(str) {
   return d.innerHTML;
 }
 
+// 트랜잭션이 돌려주는 값에 undefined 가 하나라도 섞이면 SDK 가 앱이 잡을 수 없는 오류를 내고,
+// 그 뒤 같은 연결에서 도는 트랜잭션이 방을 "비어 있다"고 보고 방을 통째로 지워버린다
+// (실제 SDK 로 재현해 확인한 일이다). 돌려주기 직전에 undefined 를 모두 null 로 바꿔 원천 차단한다.
+// (중단하려고 일부러 undefined 를 돌려주는 경우에는 쓰지 않는다)
+function noUndefined(value) {
+  if (value === undefined) return null;
+  if (value === null || typeof value !== "object") return value;
+  if (Array.isArray(value)) return value.map(noUndefined);
+  const out = {};
+  Object.keys(value).forEach((key) => { out[key] = noUndefined(value[key]); });
+  return out;
+}
+
 async function acceptRequest(guestUid, req) {
   const roomRef = ref(db, `rooms/${roomId}`);
   const joinKey = newChatKey(db, roomId);
@@ -522,7 +536,7 @@ async function acceptRequest(guestUid, req) {
       room.chat = null; // 예전 구조로 방 안에 남아있던 기록이 있으면 여기서 정리된다
       room.guestTyping = null;
       room.matchEndPending = null; // 지난 매치의 알림 예약이 남아 있으면 지운다
-      return room;
+      return noUndefined(room);
     });
   } catch (err) {
     // 쓰기가 거부되면(주로 보안 규칙) 조용히 실패하지 않고 이유를 보여준다.
@@ -736,7 +750,7 @@ function leaveUpdater() {
 
     if (room.hostUid === myUid) {
       if (room.guestUid) {
-        return {
+        return noUndefined({
           hostChatSince: room.guestChatSince || null,
           hostUid: room.guestUid,
           hostName: room.guestName,
@@ -753,7 +767,7 @@ function leaveUpdater() {
           status: "waiting",
           createdAt: room.createdAt,
           lastSeen: room.lastSeen || null
-        };
+        });
       }
       return null; // 방에 아무도 안 남음 -> 삭제
     }
@@ -766,7 +780,7 @@ function leaveUpdater() {
       room.status = "waiting";
       room.battle = null;
       clearTyping(room);
-      return room;
+      return noUndefined(room);
     }
 
     return room;
