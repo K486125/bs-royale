@@ -474,7 +474,7 @@ function renderAttackRange(battle) {
   mapEl.querySelectorAll(".range-box").forEach((el) => el.remove());
   if (!battle || battle.phase !== "playing") return;
 
-  // 화살표로 조준한 방향의 사거리를 보여준다. 쏜 뒤에도 조준이 남아 있으므로 계속 보인다.
+  // 화살표로 조준한 방향의 사거리를 보여준다. 쏘는 순간 조준이 풀리므로 바로 사라진다.
   // 벽이나 유닛이 있어도 사거리 전체를 보여준다.
   if (!aimDir) return;
 
@@ -1450,9 +1450,11 @@ async function fireAttack() {
   attackInFlight = true;
   playSelect();
   const firedAt = Date.now();
+  // 쏘는 순간 조준을 풀고 범위 표시를 바로 지운다 (서버 응답을 기다리지 않는다).
+  aimDir = null;
+  renderAttackRange(battle);
   try {
     await update(ref(db, `rooms/${roomId}/battle`), updates);
-    // 조준은 풀지 않는다. 같은 방향으로 스페이스만 눌러 이어서 쏠 수 있고, 범위 표시도 그대로 남는다.
     // 총알은 쏜 순간부터 날아가고 있었으므로, 쓰기가 오간 시간만큼 당겨서 판정한다.
     if (shotId) resolveSpread(from, shotDir, spec.spread, shotId, Date.now() - firedAt);
     // 005의 튕김은 곧바로 들어가지 않고 1초 뒤에 옆 적에게 닿는다.
