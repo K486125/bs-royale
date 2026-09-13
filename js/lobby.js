@@ -187,7 +187,8 @@ let audioSettings = loadSettings();
 function pushMusicSettings() {
   if (!window.bsApi || !window.bsApi.setMusicSettings) return;
   window.bsApi.setMusicSettings({
-    enabled: audioSettings.musicOn,
+    // 개발 중에는 설정과 상관없이 배경음악을 틀지 않는다.
+    enabled: audioSettings.musicOn && !DEV_TOOLS,
     volume: audioSettings.musicVolume / 100
   });
 }
@@ -281,7 +282,7 @@ function startApp() {
   // 닉네임 입력을 마치고 로비에 도달하는 시점(재방문 시에도 동일 시점)에 배경음악을 시작한다.
   // 저장된 설정을 먼저 넘겨서, 음악을 꺼둔 상태라면 소리가 새어나오지 않게 한다.
   pushMusicSettings();
-  if (window.bsApi) window.bsApi.startMusic();
+  if (window.bsApi && !DEV_TOOLS) window.bsApi.startMusic();
 
   setPersistence(auth, browserSessionPersistence)
     .then(() => signInAnonymously(auth))

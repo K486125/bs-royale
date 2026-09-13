@@ -1,4 +1,5 @@
 import { loadSettings } from "./settings.js";
+import { DEV_TOOLS, DEV_SFX_SCALE } from "./dev-flags.js";
 
 // 효과음. 화면(로비/대기실/배치)마다 각자 불러 쓴다.
 //
@@ -61,7 +62,8 @@ export async function playSelect() {
   const source = ctx.createBufferSource();
   source.buffer = buffer;
   const amp = ctx.createGain();
-  amp.gain.value = gain * (sfxVolume / 100);
+  // 개발 중에는 계속 들으며 시험하므로 작게 낸다.
+  amp.gain.value = gain * (sfxVolume / 100) * (DEV_TOOLS ? DEV_SFX_SCALE : 1);
   source.connect(amp).connect(ctx.destination);
   source.start(0, startOffset);
 }

@@ -13,3 +13,7 @@ export const DEV_TOOLS = true;
 // 개발 중 기본으로 장착해 둘 유닛 (DEV_TOOLS 가 켜져 있을 때만 쓴다).
 // 0부터 세는 번호다. [3, 4, 5] 는 004~006.
 export const DEV_DEFAULT_UNITS = [3, 4, 5];
+
+// 개발 중 소리 (DEV_TOOLS 가 켜져 있을 때만 쓴다).
+// 배경음악은 아예 틀지 않고, 효과음은 설정 볼륨에 이 배율을 곱해 작게 낸다.
+export const DEV_SFX_SCALE = 0.35;
