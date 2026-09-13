@@ -1989,3 +1989,113 @@ body.battle-page {
 /* 유닛 고르기 창: 이미 끼워둔 유닛은 테두리로 표시하고, 누르면 해제된다 */
 .card-bar.bar-clear { background: linear-gradient(180deg, #ff8f8f, #d8453f); color: #fff; cursor: pointer; }
 .bs-card.equipped .portrait-frame { outline: 3px solid #ffd34d; outline-offset: 2px; }
+
+/* ---------- 업데이트 화면 ---------- */
+/* 새 버전을 받는 동안 모든 페이지를 덮는다. 제목 표시줄(최소화/닫기)은 가리지 않는다. */
+.update-overlay {
+  position: fixed;
+  inset: 32px 0 0 0;
+  z-index: 2000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: radial-gradient(120% 90% at 50% 40%, rgba(24, 30, 66, .97), rgba(9, 11, 26, .985));
+  backdrop-filter: blur(3px);
+}
+.update-card {
+  width: min(380px, 100%);
+  padding: 30px 28px 26px;
+  border-radius: 18px;
+  border: 3px solid #10142c;
+  background: linear-gradient(180deg, #252d5c, #1a2046);
+  box-shadow: 0 6px 0 #10142c, 0 18px 40px rgba(0, 0, 0, .55);
+  text-align: center;
+  color: #e8ecff;
+}
+.update-spinner {
+  width: 46px;
+  height: 46px;
+  margin: 0 auto 16px;
+  border-radius: 50%;
+  border: 5px solid rgba(255, 255, 255, .12);
+  border-top-color: #ffd34d;
+  animation: update-spin .9s linear infinite;
+}
+.update-overlay.ready .update-spinner {
+  animation: none;
+  border-color: #37d67a;
+  background: #37d67a;
+  position: relative;
+}
+/* 다 받아지면 돌던 원이 체크 표시로 바뀐다 */
+.update-overlay.ready .update-spinner::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 44%;
+  width: 11px;
+  height: 20px;
+  border: solid #0b2a17;
+  border-width: 0 5px 5px 0;
+  transform: translate(-50%, -50%) rotate(45deg);
+}
+@keyframes update-spin { to { transform: rotate(360deg); } }
+
+.update-title {
+  font-size: 22px;
+  font-weight: 900;
+  letter-spacing: .3px;
+  text-shadow: 0 2px 0 rgba(0, 0, 0, .55);
+}
+.update-text {
+  margin-top: 8px;
+  font-size: 14px;
+  line-height: 1.5;
+  color: #b9c2f0;
+}
+.update-bar {
+  position: relative;
+  height: 14px;
+  margin-top: 18px;
+  border-radius: 7px;
+  border: 2px solid #0c1024;
+  background: #141a3a;
+  overflow: hidden;
+  box-shadow: inset 0 2px 3px rgba(0, 0, 0, .5);
+}
+.update-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 0;
+  border-radius: 5px;
+  background: linear-gradient(180deg, #ffe58a, #f0b429);
+  transition: width .3s ease;
+}
+.update-overlay.ready .update-fill { background: linear-gradient(180deg, #7dffae, #2fbf69); }
+.update-overlay.ready .update-percent { display: none; }
+.update-percent {
+  min-height: 18px;
+  margin-top: 8px;
+  font-size: 14px;
+  font-weight: 800;
+  color: #ffdf7d;
+  font-variant-numeric: tabular-nums;
+}
+.update-restart {
+  margin-top: 16px;
+  padding: 12px 30px;
+  border: 3px solid #0b3a1f;
+  border-radius: 12px;
+  background: linear-gradient(180deg, #5ef08f, #2fbf69);
+  color: #062414;
+  font-size: 17px;
+  font-weight: 900;
+  cursor: pointer;
+  box-shadow: 0 5px 0 #0b3a1f;
+}
+.update-restart:hover:not(:disabled) { filter: brightness(1.06); }
+.update-restart:active:not(:disabled) { transform: translateY(3px); box-shadow: 0 2px 0 #0b3a1f; }
+.update-restart:disabled { opacity: .75; cursor: default; }
+.update-restart:focus-visible { outline: 3px solid #ffd34d; outline-offset: 3px; }
+
