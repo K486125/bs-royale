@@ -103,7 +103,7 @@
           "hostAmmo": {
             "$slot": {
               ".validate": "$slot.matches(/^[0-2]$/) && newData.hasChildren(['v', 'at'])",
-              "v": { ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 3" },
+              "v": { ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 4" },
               "at": { ".validate": "newData.isNumber()" },
               "$other": { ".validate": false }
             }
@@ -111,7 +111,7 @@
           "guestAmmo": {
             "$slot": {
               ".validate": "$slot.matches(/^[0-2]$/) && newData.hasChildren(['v', 'at'])",
-              "v": { ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 3" },
+              "v": { ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 4" },
               "at": { ".validate": "newData.isNumber()" },
               "$other": { ".validate": false }
             }

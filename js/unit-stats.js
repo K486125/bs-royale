@@ -75,11 +75,21 @@ const ATTACK = {
     range: 3, splash: false, damage: 2000, bounce: 0.6,
     projectile: { tileMs: 1750 / 3, pierce: false, look: "zap" }
   },
+  // Brock: 미사일. 자기 칸 포함 5타일, 끝 칸까지 2초, 단일 2000. 바로 앞 칸의 적은 즉발.
+  // 미사일이 멈춘 자리에 불장판을 깐다: 적에 닿으면 그 칸, 벽이나 맵 끝에 막히면 그 앞 칸, 아니면 사거리 끝 칸.
+  // 불장판은 1초마다 300씩 3번 (다 맞으면 2000 + 900 = 2900).
   "006": {
-    range: 4, splash: false, damage: 1900,                  // 자기 칸 포함 5타일, 단일
-    dot: { damage: 350, ticks: 3, everyMs: 1000 }           // 맞은 자리에 3초간 1초마다 350
+    range: 4, splash: false, damage: 2000,
+    dot: { damage: 300, ticks: 3, everyMs: 1000 },
+    projectile: { tileMs: 500, pierce: false, look: "missile", instantNear: true }
   }
 };
+
+// 탄창 수. 적힌 유닛만 다르고 나머지는 3발.
+const AMMO = {
+  "006": 4   // Brock: 탄창 4개 대신 재장전이 느리다
+};
+const DEFAULT_AMMO = 3;
 
 // 에너지는 이동에만 쓴다 (사람마다 하나, 초당 10, 최대 100). 한 칸에 10.
 // 공격은 에너지를 쓰지 않고 탄창과 재장전 시간으로만 제한한다.
@@ -94,11 +104,15 @@ const RELOAD_MS = {
   "003": 4000,  // Colt
   "004": 5000,  // Bull
   "005": 4000,  // Jessie
-  "006": 4000   // Brock
+  "006": 5000   // Brock (탄창이 4개라 더 느리게)
 };
 const FALLBACK_RELOAD_MS = 4500;
 
 export { MAX_ENERGY, ENERGY_PER_SEC, MOVE_COST };
+
+export function ammoMax(file) {
+  return (file && AMMO[unitNumber(file)]) || DEFAULT_AMMO;
+}
 
 export function reloadMs(file) {
   if (!file) return FALLBACK_RELOAD_MS;

@@ -1,7 +1,7 @@
 import "./update-overlay.js";   // 업데이트 중에는 화면을 덮고, 끝나면 재실행 버튼을 띄운다
 import { firebaseConfig } from "./firebase-config.js";
 import { unitFrameClass, unitNumber } from "./unit-colors.js";
-import { maxHp, attackOf, attackOfNumber, damageAt, reloadMs, MAX_ENERGY, ENERGY_PER_SEC, MOVE_COST } from "./unit-stats.js";
+import { maxHp, attackOf, attackOfNumber, damageAt, reloadMs, ammoMax, MAX_ENERGY, ENERGY_PER_SEC, MOVE_COST } from "./unit-stats.js";
 import { playSelect } from "./sfx.js";
 import {
   newChatKey, watchChatData, isLastLeaveNotice, noticeEntry, trimRootUpdates
@@ -46,7 +46,6 @@ function isWall(key) {
 // (손님 화면은 세로로 뒤집혀 있어서, 둘 다 자기 스폰이 화면 맨 아래에 보인다)
 const SPAWN = { host: `${ROWS - 1}_${Math.floor(COLS / 2)}`, guest: `0_${Math.floor(COLS / 2)}` };
 const RESPAWN_DELAY_MS = 1000;  // 유닛이 쓰러진 뒤 다음 유닛이 나오기까지
-const MAX_AMMO = 3;            // 유닛마다 가지는 탄창 수
 // 한 칸 움직인 뒤 이만큼은 다음 이동을 받지 않는다.
 // 연속으로 밀어 넣으면 서버에 반영되기 전 상태로 다음 이동을 계산하게 되어 어긋날 수 있다.
 const ACTION_GUARD_MS = 250;    // 연타로 같은 행동이 두 번 나가지 않게 하는 최소 간격
@@ -558,9 +557,12 @@ async function startPlaying() {
     };
     // 양쪽 모두 에너지가 가득 찬 채로 시작한다.
     const fullEnergy = () => ({ v: MAX_ENERGY, at: serverTimestamp() });
-    const fullAmmo = () => {
+    // 탄창도 유닛마다 수가 달라서(Brock 4발), 장착한 유닛을 보고 가득 채운다.
+    const fullAmmo = (role) => {
       const table = {};
-      for (let slot = 0; slot < 3; slot++) table[slot] = { v: MAX_AMMO, at: serverTimestamp() };
+      unitsOf(role).forEach((file, slot) => {
+        if (file) table[slot] = { v: ammoMax(file), at: serverTimestamp() };
+      });
       return table;
     };
     await update(ref(db, `rooms/${roomId}/battle`), {
@@ -569,8 +571,8 @@ async function startPlaying() {
       actedAt: serverTimestamp(),
       hostHp: fullHp("host"),
       guestHp: fullHp("guest"),
-      hostAmmo: fullAmmo(),
-      guestAmmo: fullAmmo(),
+      hostAmmo: fullAmmo("host"),
+      guestAmmo: fullAmmo("guest"),
       hostEnergy: fullEnergy(),
       guestEnergy: fullEnergy()
     });
@@ -821,17 +823,18 @@ function animateHpBars(root) {
 function ammoState(battle, role, slot, file) {
   const cell = (battle[`${role}Ammo`] || {})[slot];
   const per = reloadMs(file);
-  if (!cell || typeof cell.v !== "number") return { ammo: MAX_AMMO, progress: 0 };
+  const maxAmmo = ammoMax(file);
+  if (!cell || typeof cell.v !== "number") return { ammo: maxAmmo, progress: 0 };
 
-  const base = Math.max(0, Math.min(MAX_AMMO, cell.v));
+  const base = Math.max(0, Math.min(maxAmmo, cell.v));
   const at = typeof cell.at === "number" ? cell.at : 0;
-  if (!at || !serverTimeReady() || base >= MAX_AMMO) return { ammo: base, progress: 0 };
+  if (!at || !serverTimeReady() || base >= maxAmmo) return { ammo: base, progress: 0 };
 
   const elapsed = Math.max(0, serverNow() - at);
   const gained = Math.floor(elapsed / per);
-  const ammo = Math.min(MAX_AMMO, base + gained);
+  const ammo = Math.min(maxAmmo, base + gained);
   // 다음 한 발이 얼마나 찼는지 (막대에 조금씩 차오르는 모습으로 보여준다)
-  const progress = ammo >= MAX_AMMO ? 0 : (elapsed % per) / per;
+  const progress = ammo >= maxAmmo ? 0 : (elapsed % per) / per;
   return { ammo, progress };
 }
 
@@ -842,20 +845,21 @@ function ammoOf(battle, role, slot, file) {
 // 한 발 쓰고 남은 값을 적는다. 이미 차오르던 중이었다면 그 진행은 살려 둔다.
 function spendAmmo(battle, slot, file) {
   const per = reloadMs(file);
+  const maxAmmo = ammoMax(file);
   const cell = (battle[`${myRole()}Ammo`] || {})[slot];
-  const base = cell && typeof cell.v === "number" ? Math.max(0, Math.min(MAX_AMMO, cell.v)) : MAX_AMMO;
+  const base = cell && typeof cell.v === "number" ? Math.max(0, Math.min(maxAmmo, cell.v)) : maxAmmo;
   const at = cell && typeof cell.at === "number" ? cell.at : 0;
 
-  if (!at || !serverTimeReady() || base >= MAX_AMMO) {
+  if (!at || !serverTimeReady() || base >= maxAmmo) {
     // 가득 찬 상태에서 쏘면 지금부터 다음 한 발이 차기 시작한다.
-    return { [`${myRole()}Ammo/${slot}`]: { v: Math.max(0, Math.min(MAX_AMMO, base) - 1), at: serverTimestamp() } };
+    return { [`${myRole()}Ammo/${slot}`]: { v: Math.max(0, Math.min(maxAmmo, base) - 1), at: serverTimestamp() } };
   }
 
   const elapsed = Math.max(0, serverNow() - at);
   const gained = Math.floor(elapsed / per);
   const now = ammoState(battle, myRole(), slot, file).ammo;
-  if (now >= MAX_AMMO) {
-    return { [`${myRole()}Ammo/${slot}`]: { v: MAX_AMMO - 1, at: serverTimestamp() } };
+  if (now >= maxAmmo) {
+    return { [`${myRole()}Ammo/${slot}`]: { v: maxAmmo - 1, at: serverTimestamp() } };
   }
   // 채워진 만큼만 기준점을 밀어, 남은 진행(예: 2.6초째)은 그대로 이어간다.
   return {
@@ -869,7 +873,7 @@ function spendAmmo(battle, slot, file) {
 // 남은 탄창을 점으로 보여준다. 차오르는 중인 한 발은 조금씩 채워진다.
 function ammoRowHtml(role, slot, file) {
   let pips = "";
-  for (let i = 0; i < MAX_AMMO; i++) pips += `<i><b></b></i>`;
+  for (let i = 0; i < ammoMax(file); i++) pips += `<i><b></b></i>`;
   return `<div class="ammo-row" data-role="${role}" data-slot="${slot}" data-file="${file}">${pips}</div>`;
 }
 
@@ -1273,6 +1277,62 @@ function resolveProjectile(fromKey, dir, spec, shotId, elapsedMs) {
   });
 }
 
+// 미사일 (Brock). 한 줄로 날아가 처음 닿은 적에서 터지고, 멈춘 자리에 불장판을 깐다.
+//  - 적에 닿으면 그 적이 맞고 그 칸에 불. 바로 앞 칸의 적은 쏘는 즉시(instantNear) 맞는다.
+//  - 벽이나 맵 끝에 막히면 그 앞 칸에 불 (벽이 바로 앞이면 쏜 자리에).
+//  - 아무 데도 안 닿으면 사거리 끝 칸에 불.
+// 적이 뒤로 물러나도 그 칸이 사거리 안이면 미사일이 거기까지 날아가 맞는다 (칸마다 도착 순간에 보므로).
+function resolveMissile(fromKey, dir, spec, shotId, elapsedMs) {
+  const path = lineTiles(fromKey, dir, spec.range);
+  const tileMs = spec.projectile.tileMs;
+  let done = false;
+  const write = (updates) => update(ref(db, `rooms/${roomId}/battle`), updates)
+    .catch((err) => { console.error("미사일 판정 실패:", err); writeFailNotice("미사일 판정", err); });
+  const live = () => {
+    const battle = currentRoom && currentRoom.battle;
+    return battle && battle.phase === "playing" ? battle : null;
+  };
+
+  const land = (battle, key, hit) => {
+    const updates = {
+      [`shots/${shotId}`]: null,
+      [`burns/${key}`]: { at: serverTimestamp(), by: myRole() }
+    };
+    if (hit) Object.assign(updates, hitUpdates(battle, { [key]: damageAt(spec, 1) }));
+    write(updates);
+    scheduleDot(key, spec.dot);
+  };
+
+  if (!path.length) {
+    // 바로 앞이 맵 끝이면 쏜 자리에 불을 깐다.
+    setTimeout(() => { const battle = live(); if (battle) land(battle, fromKey, false); }, 0);
+    return;
+  }
+  path.forEach((step, i) => {
+    let reachMs = step.wall ? tileMs * (step.d - 0.5) : tileMs * step.d;
+    if (i === 0 && spec.projectile.instantNear) reachMs = 0;   // 근접은 즉발
+    setTimeout(() => {
+      if (done) return;
+      const battle = live();
+      if (!battle) { done = true; return; }
+      if (step.wall) {
+        done = true;
+        land(battle, i === 0 ? fromKey : path[i - 1].key, false);
+        return;
+      }
+      if ((battle[oppField()] || {})[step.key]) {
+        done = true;
+        land(battle, step.key, true);
+        return;
+      }
+      if (i === path.length - 1) {
+        done = true;
+        land(battle, step.key, false);
+      }
+    }, Math.max(0, reachMs - elapsedMs));
+  });
+}
+
 // 튕기는 전기 볼 (Jessie). 한 줄로 날아가다 처음 닿은 적, 벽, 사거리 끝에서 멈추고 한 번 튕긴다.
 //  - 적에 닿으면 그 적이 맞고, 그 칸에서 튕긴다.
 //  - 벽에 닿으면 벽 바로 앞 칸에서 튕긴다 (벽이 바로 앞이면 쏜 자리에서).
@@ -1394,6 +1454,7 @@ function fadeSpark(center, mine) {
 const PROJECTILE_LOOK = {
   orb: { className: "orb", radius: 0.42, spark: "energy" },
   zap: { className: "zap", radius: 0.58, spark: "energy" },
+  missile: { className: "missile", radius: 0.34, spark: "blast", explode: true },
   slug: { className: "slug", radius: 0.3, spark: "" }
 };
 function animateProjectile(shot, dir, spec, age) {
@@ -1404,6 +1465,12 @@ function animateProjectile(shot, dir, spec, age) {
   const look = PROJECTILE_LOOK[spec.projectile.look] || PROJECTILE_LOOK.orb;
   const radius = start.half * look.radius;
   const tileMs = spec.projectile.tileMs;
+
+  // 근접 즉발(Brock): 쏘는 순간 바로 앞에 적이 있으면 날아갈 틈 없이 그 자리에서 터진다.
+  if (spec.projectile.instantNear && !path[0].wall && enemyAt(shot, path[0].key)) {
+    if (age < 400) unitSpark(tileCenter(path[0].key), mine, true, look.spark);
+    return;
+  }
 
   const last = path[path.length - 1];
   const lastCenter = tileCenter(last.key);
@@ -1419,13 +1486,15 @@ function animateProjectile(shot, dir, spec, age) {
   // 화면에서 날아가는 방향으로 돌린다 (그림은 위를 향하게 그려져 있다).
   const angle = Math.atan2(end.x - start.x, start.y - end.y) * 180 / Math.PI;
   const at = (p) => `translate(${p.x}px, ${p.y}px) translate(-50%, -50%) rotate(${angle}deg)`;
-  const frames = contact || spec.bounce
+  const frames = contact || spec.bounce || look.explode
     ? [{ transform: at(start) }, { transform: at(end) }]
     : [{ transform: at(start), opacity: 1 }, { transform: at(end), opacity: 1, offset: 0.85 }, { transform: at(end), opacity: 0 }];
   const anim = el.animate(frames, { duration, delay: -age, fill: "forwards", easing: "linear" });
   anim.onfinish = () => {
     el.remove();
     if (contact) wallSpark(contact, mine);
+    // 미사일은 막히든 사거리 끝이든 멈춘 자리에서 터진다.
+    if (look.explode) unitSpark(end, mine, true, look.spark);
   };
 
   let done = false;
@@ -1434,7 +1503,7 @@ function animateProjectile(shot, dir, spec, age) {
     if (wait < 0) return;
     setTimeout(() => {
       if (done || !enemyAt(shot, step.key)) return;
-      unitSpark(tileCenter(step.key), mine, false, look.spark);
+      unitSpark(tileCenter(step.key), mine, !!look.explode, look.spark);
       if (!spec.projectile.pierce) {
         done = true;
         anim.onfinish = null;
@@ -1786,10 +1855,6 @@ async function fireAttack() {
 
   targets.forEach((hit) => hurt(hit.key, damageAt(spec, hit.distance)));
 
-  // 006처럼 자리를 태우는 공격은 그 칸을 불붙은 자리로 적어둔다 (양쪽 화면에 불이 보인다)
-  if (spec.dot && targets.length) {
-    updates[`burns/${targets[0].key}`] = { at: serverTimestamp(), by: myRole() };
-  }
   attackInFlight = true;
   playSelect();
   const firedAt = Date.now();
@@ -1800,12 +1865,11 @@ async function fireAttack() {
     await update(ref(db, `rooms/${roomId}/battle`), updates);
     // 총알은 쏜 순간부터 날아가고 있었으므로, 쓰기가 오간 시간만큼 당겨서 판정한다.
     if (shotId && spec.spread) resolveSpread(from, shotDir, spec.spread, shotId, Date.now() - firedAt);
-    if (shotId && spec.projectile && spec.bounce) resolveBounceShot(from, shotDir, spec, shotId, Date.now() - firedAt);
+    if (shotId && spec.projectile && spec.dot) resolveMissile(from, shotDir, spec, shotId, Date.now() - firedAt);
+    else if (shotId && spec.projectile && spec.bounce) resolveBounceShot(from, shotDir, spec, shotId, Date.now() - firedAt);
     else if (shotId && spec.projectile) resolveProjectile(from, shotDir, spec, shotId, Date.now() - firedAt);
     // 연발: 나머지 총알은 간격을 두고, 그 순간 유닛이 서 있는 칸에서 같은 방향으로 나간다.
     if (spec.burst) startBurst(slot, shotDir, spec, firedAt);
-    // 006처럼 자리에 남는 공격: 맞은 칸을 정해진 횟수만큼 계속 태운다.
-    if (spec.dot && targets.length) scheduleDot(targets[0].key, spec.dot);
     // 연발은 총알 사이에 움직일 수 있어야 하므로 쏜 뒤 쉬는 시간을 두지 않는다 (연타는 burstUntil 이 막는다).
     if (!spec.burst) startActionCooldown();
   } catch (err) {

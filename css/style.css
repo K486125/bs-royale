@@ -2366,3 +2366,57 @@ body.battle-page {
   animation: unit-hit-flash .4s ease-out forwards;
 }
 .zap-fizzle.foe { --tint: rgba(255, 100, 85, .7); }
+
+/* Brock 미사일. 뾰족한 머리, 몸통, 꼬리 날개, 뒤로 뿜는 불꽃. 머리가 날아가는 쪽을 향한다.
+   바깥 상자는 위치만 맡고 모양은 안쪽 그림으로 만든다. 우리 편은 파랑, 적은 빨강. */
+.missile {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: calc(var(--tile-size) * .2);
+  height: calc(var(--tile-size) * .5);
+  pointer-events: none;
+  z-index: 6;
+  --body: #4aa8ff;
+  --body-dark: #0f5fc0;
+  --glow: rgba(74, 168, 255, .6);
+}
+.missile.foe { --body: #ff6a55; --body-dark: #b01e10; --glow: rgba(255, 90, 70, .6); }
+/* 몸통 + 뾰족한 머리 */
+.missile::before {
+  content: "";
+  position: absolute;
+  left: 18%;
+  right: 18%;
+  top: 0;
+  bottom: 22%;
+  border-radius: 50% 50% 12% 12% / 38% 38% 6% 6%;
+  background: linear-gradient(90deg, var(--body-dark) 0%, var(--body) 40%, #eef7ff 52%, var(--body) 64%, var(--body-dark) 100%);
+  box-shadow: 0 0 8px 2px var(--glow);
+}
+/* 꼬리 날개와 불꽃 */
+.missile::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 36%;
+  background:
+    radial-gradient(ellipse 30% 55% at 50% 85%, #fff6c8 0 30%, #ffb02e 60%, transparent 100%),
+    linear-gradient(135deg, transparent 0 48%, var(--body-dark) 50%) left top / 50% 60% no-repeat,
+    linear-gradient(225deg, transparent 0 48%, var(--body-dark) 50%) right top / 50% 60% no-repeat;
+  animation: missile-flame .12s steps(2) infinite;
+}
+@keyframes missile-flame {
+  from { filter: brightness(1); }
+  to   { filter: brightness(1.35); }
+}
+
+/* 미사일이 터진 자리: 주황 불덩이 번쩍임에 편 색이 살짝 섞인 파편 */
+.unit-hit.blast::before {
+  background: radial-gradient(circle, #fffbe6 0 16%, #ffb02e 38%, var(--glow) 58%, transparent 74%);
+}
+.unit-hit.blast i {
+  background: radial-gradient(circle at 35% 35%, #fff3c4 0 20%, #ff9a2e 55%, var(--edge) 100%);
+}
