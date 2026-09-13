@@ -22,6 +22,7 @@ const FALLBACK_MAX_HP = 6000;
 //   dot    : 맞은 자리에 남는 지속 피해 (damage를 everyMs마다 ticks번).
 //   spread : 산탄. 구슬 총알 여러 발이 날아가 각자 한 칸씩 맞힌다 (아래 Shelly 참고).
 //            d 는 앞으로 몇 칸째, side 는 옆으로 몇 칸 벗어났는지, tileMs 는 한 칸 날아가는 시간.
+//   pierce : 관통 발사체. 한 줄로 날아가며 지나가는 칸의 적을 모두 맞히고, 벽에 닿으면 멈춘다.
 const ATTACK = {
   // Shelly: 바로 앞 1칸, 그 앞 가로 3칸. 단발이라 한 발이 바로 앞 칸까지 간다.
   // 거기 적이 있으면 퍼지지 않고 그 적만 3000 (총알 셋의 합). 비어 있으면 세 발로 갈라져
@@ -35,7 +36,8 @@ const ATTACK = {
       ]
     }
   },
-  "002": { range: 2, splash: true, damage: 1500 },          // 자기 칸 포함 3타일, 광역
+  // Nita: 에너지 볼. 앞으로 2칸을 1초에 날아가며 지나가는 적을 모두 1500씩 맞힌다. 벽은 못 뚫는다.
+  "002": { range: 2, splash: true, damage: 1500, pierce: { tileMs: 500 } },
   "003": { range: 3, splash: false, damage: 2400 },         // 자기 칸 포함 4타일, 단일
   "004": { range: 1, splash: false, damage: 4000 },         // 자기 칸 포함 2타일(실제 1칸), 근접 단일
   "005": { range: 3, splash: false, damage: 2000, bounce: 0.6 },  // 자기 칸 포함 4타일, 한 번 튕김

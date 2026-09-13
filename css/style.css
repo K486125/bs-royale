@@ -2135,8 +2135,8 @@ body.battle-page {
 .update-restart:focus-visible { outline: 3px solid #ffd34d; outline-offset: 3px; }
 
 
-/* 구슬 총알 (Shelly 산탄). 판 위를 날아가고, 도착하면 사라진다.
-   내가 쏜 것은 금빛, 상대가 쏜 것은 붉은빛. 위치는 스크립트가 transform 으로 옮긴다. */
+/* 구슬 총알 (Shelly). 판 위를 날아가고, 도착하면 사라진다.
+   우리 편이 쏜 것은 파랑, 적이 쏜 것은 빨강. 위치는 스크립트가 transform 으로 옮긴다. */
 .bullet {
   position: absolute;
   left: 0;
@@ -2146,8 +2146,8 @@ body.battle-page {
   border-radius: 50%;
   pointer-events: none;
   z-index: 6;
-  background: radial-gradient(circle at 35% 35%, #fffbe6 0 22%, #ffd24a 45%, #c98a00 100%);
-  box-shadow: 0 0 8px 2px rgba(255, 210, 74, .65), 0 2px 3px rgba(0, 0, 0, .5);
+  background: radial-gradient(circle at 35% 35%, #eef7ff 0 22%, #4aa8ff 45%, #0f5fc0 100%);
+  box-shadow: 0 0 8px 2px rgba(74, 168, 255, .65), 0 2px 3px rgba(0, 0, 0, .5);
 }
 .bullet.foe {
   background: radial-gradient(circle at 35% 35%, #ffe9e6 0 22%, #ff6a55 45%, #b01e10 100%);
@@ -2164,8 +2164,8 @@ body.battle-page {
   height: calc(var(--tile-size) * .5);
   pointer-events: none;
   z-index: 7;
-  --spark: #ffe7a8;
-  --glow: rgba(255, 200, 80, .65);
+  --spark: #c8e6ff;
+  --glow: rgba(74, 168, 255, .65);
 }
 .wall-hit.foe { --spark: #ffc2b8; --glow: rgba(255, 100, 80, .65); }
 .wall-hit::before {
@@ -2208,9 +2208,9 @@ body.battle-page {
   height: calc(var(--tile-size) * .6);
   pointer-events: none;
   z-index: 7;
-  --core: #ffd24a;
-  --edge: #c98a00;
-  --glow: rgba(255, 210, 74, .7);
+  --core: #4aa8ff;
+  --edge: #0f5fc0;
+  --glow: rgba(74, 168, 255, .7);
   --fly: calc(var(--tile-size) * .38);
 }
 .unit-hit.foe { --core: #ff6a55; --edge: #b01e10; --glow: rgba(255, 90, 70, .7); }
@@ -2246,4 +2246,46 @@ body.battle-page {
 @keyframes unit-hit-bead {
   0%   { transform: translate(-50%, -50%) rotate(var(--a)) translateY(0) scale(1); opacity: 1; }
   100% { transform: translate(-50%, -50%) rotate(var(--a)) translateY(calc(var(--fly) * -1)) scale(.4); opacity: 0; }
+}
+
+/* 에너지 볼 (Nita). 일렁이는 빛 덩어리. 우리 편은 파랑, 적은 빨강. */
+.orb {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: calc(var(--tile-size) * .42);
+  height: calc(var(--tile-size) * .42);
+  border-radius: 50%;
+  pointer-events: none;
+  z-index: 6;
+  --core: #eaf6ff;
+  --mid: #5fb4ff;
+  --rim: rgba(30, 110, 230, .0);
+  --glow: rgba(80, 170, 255, .8);
+  background: radial-gradient(circle at 50% 50%, var(--core) 0 18%, var(--mid) 48%, var(--rim) 72%);
+  box-shadow: 0 0 14px 5px var(--glow), inset 0 0 8px rgba(255, 255, 255, .6);
+}
+.orb.foe {
+  --core: #fff0ec;
+  --mid: #ff6a55;
+  --rim: rgba(200, 30, 20, .0);
+  --glow: rgba(255, 90, 70, .8);
+}
+.orb::after {
+  content: "";
+  position: absolute;
+  inset: -18%;
+  border-radius: 50%;
+  border: 2px solid var(--glow);
+  opacity: .55;
+  animation: orb-pulse .35s ease-in-out infinite alternate;
+}
+@keyframes orb-pulse {
+  from { transform: scale(.85); opacity: .35; }
+  to   { transform: scale(1.1); opacity: .7; }
+}
+
+/* 에너지 볼이 유닛을 지나가며 맞힌 자리: 구슬 조각 대신 빛 알갱이 */
+.unit-hit.energy i {
+  background: radial-gradient(circle, #ffffff 0 25%, var(--core) 60%, transparent 100%);
 }
