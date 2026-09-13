@@ -8,7 +8,7 @@
 //   npm run sync-share
 // 로 한다 (합친 뒤 스위치를 꺼주고, 꺼졌는지 확인까지 한다).
 // 배포 전에도 npm run release 가 한 번 더 확인한다.
-export const DEV_TOOLS = true;
+export const DEV_TOOLS = false;
 
 // 개발 중 기본으로 장착해 둘 유닛 (DEV_TOOLS 가 켜져 있을 때만 쓴다).
 // 0부터 세는 번호다. [3, 4, 5] 는 004~006.
