@@ -10,7 +10,8 @@
     "dist": "electron-builder --win",
     "prerelease": "node scripts/check-share.js",
     "release": "node scripts/release.js",
-    "sync-share": "node scripts/sync-share.js",
+    "sync-share": "node scripts/sync-branch.js share",
+    "sync-dev": "node scripts/sync-branch.js dev",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],
