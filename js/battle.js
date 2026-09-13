@@ -51,7 +51,7 @@ const MAX_AMMO = 3;            // 유닛마다 가지는 탄창 수
 // 연속으로 밀어 넣으면 서버에 반영되기 전 상태로 다음 이동을 계산하게 되어 어긋날 수 있다.
 const ACTION_GUARD_MS = 250;    // 연타로 같은 행동이 두 번 나가지 않게 하는 최소 간격
                                 // (진짜 제동은 에너지가 건다)
-const BOUNCE_DELAY_MS = 1000;   // 005의 전기 볼이 튕겨 닿기까지 (느낌표가 떠 있는 시간이기도 하다)
+const BOUNCE_DELAY_MS = 1000;   // 005의 전기 볼이 튕겨 닿기까지
 const BURN_VISIBLE_MS = 3400;   // 006이 붙인 불이 남아 있는 시간
 
 const TURN_IDLE_MS = 20000;    // 이 시간 동안 아무 것도 안 하면 매치가 끊긴다
@@ -394,28 +394,9 @@ function renderMapTiles(myPlacements, oppPlacements) {
         ["c", "l", "r", "t", "b"].map((pos) => `<i class="spark s-${pos}"></i>`).join("");
       tile.appendChild(fire);
     }
-
-    // 튕김 예고는 유닛이 아니라 그 칸에 남는다. 피해도 1초 뒤 그 칸에 선 유닛이 받으므로,
-    // 나중에 실시간으로 바꾸면 그 사이 칸에서 벗어나 피할 수 있다.
-    // 표시는 방 데이터에 있으므로 쏜 쪽과 맞는 쪽 모두에게 같이 보인다.
-    if (key === bounceMarkKey(battle)) {
-      const warn = document.createElement("div");
-      warn.className = "bounce-warn";
-      warn.textContent = "!";
-      tile.appendChild(warn);
-    }
   });
 }
 
-// 튕김 예고 표시. 쏜 쪽이 적어두고 1초 뒤 지우는데,
-// 도중에 창이 닫혀 남는 일이 없도록 시간이 너무 지난 표시는 무시한다.
-function bounceMarkKey(battle) {
-  const mark = battle && battle.bounceMark;
-  if (!mark || !mark.key) return null;
-  const at = mark.at || 0;
-  if (at && serverNow() - at > BOUNCE_DELAY_MS + 1500) return null;
-  return mark.key;
-}
 
 // 고른 유닛 주변에 "갈 수 있는 방향"만 화살표로 표시한다.
 // 화살표는 화면 기준이라, 판이 뒤집혀 보이는 게스트에서도 누를 방향과 그림이 일치한다.
@@ -1297,7 +1278,8 @@ function resolveProjectile(fromKey, dir, spec, shotId, elapsedMs) {
 //  - 벽에 닿으면 벽 바로 앞 칸에서 튕긴다 (벽이 바로 앞이면 쏜 자리에서).
 //  - 아무 데도 안 닿으면 사거리 끝 칸에서 튕긴다.
 // 튕길 칸은 주변 여덟 칸 중 판 안의 칸이다. 옆에 적이 있으면 그중 무작위, 없으면 아무 칸이나 무작위.
-// 쏜 쪽이 정해서 느낌표 표시(bounceMark)에 출발 칸과 함께 적으므로 양쪽 화면에 같은 튕김이 보인다.
+// 쏜 쪽이 정해서 튕김 기록(bounceMark)에 출발 칸과 함께 적으므로 양쪽 화면에 같은 튕김이 보인다.
+// 칸에 따로 예고 표시는 하지 않는다. 튕기는 볼만 보인다.
 function resolveBounceShot(fromKey, dir, spec, shotId, elapsedMs) {
   const path = lineTiles(fromKey, dir, spec.range);
   const tileMs = spec.projectile.tileMs;
@@ -1358,7 +1340,7 @@ function resolveBounceShot(fromKey, dir, spec, shotId, elapsedMs) {
   });
 }
 
-// 튕김 그리기. 느낌표 표시에 적힌 출발 칸에서 튕길 칸까지 1초에 날아간다.
+// 튕김 그리기. 튕김 기록에 적힌 출발 칸에서 튕길 칸까지 1초에 날아간다.
 // 벽이면 가장자리에서 터지고, 적이 서 있으면 맞은 이펙트, 허공이면 흐려지며 사라진다.
 let shownBounce = null;
 function renderBounce(battle) {
