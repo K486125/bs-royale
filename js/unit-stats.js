@@ -20,8 +20,22 @@ const FALLBACK_MAX_HP = 6000;
 //   damage : 숫자면 거리와 상관없이 고정, 배열이면 거리별 피해(0번이 한 칸 앞).
 //   bounce : 맞은 칸 주변으로 한 번 더 튕긴다. 값은 원래 피해에 대한 비율.
 //   dot    : 맞은 자리에 남는 지속 피해 (damage를 everyMs마다 ticks번).
+//   spread : 산탄. 구슬 총알 여러 발이 날아가 각자 한 칸씩 맞힌다 (아래 Shelly 참고).
+//            d 는 앞으로 몇 칸째, side 는 옆으로 몇 칸 벗어났는지, tileMs 는 한 칸 날아가는 시간.
 const ATTACK = {
-  "001": { range: 2, splash: false, damage: [3000, 600] }, // 자기 칸 포함 3타일, 단일
+  // Shelly: 바로 앞 가로 3칸, 그 앞 가로 5칸. 모든 총알은 바로 앞 가운데 칸(총구)을 지나 퍼지므로
+  // 거기 선 적은 총알을 전부 맞는다 (600x5 + 300x2 = 3600).
+  "001": {
+    range: 2,
+    spread: {
+      tileMs: 80,
+      bullets: [
+        { d: 1, side: -1, damage: 300 }, { d: 1, side: 1, damage: 300 },
+        { d: 2, side: -2, damage: 600 }, { d: 2, side: -1, damage: 600 }, { d: 2, side: 0, damage: 600 },
+        { d: 2, side: 1, damage: 600 }, { d: 2, side: 2, damage: 600 }
+      ]
+    }
+  },
   "002": { range: 2, splash: true, damage: 1500 },          // 자기 칸 포함 3타일, 광역
   "003": { range: 3, splash: false, damage: 2400 },         // 자기 칸 포함 4타일, 단일
   "004": { range: 1, splash: false, damage: 4000 },         // 자기 칸 포함 2타일(실제 1칸), 근접 단일
@@ -59,6 +73,11 @@ export function reloadMs(file) {
 export function attackOf(file) {
   if (!file) return null;
   return ATTACK[unitNumber(file)] || null;
+}
+
+// 방 데이터의 발사 기록에는 파일 이름 대신 번호("001")만 적는다.
+export function attackOfNumber(num) {
+  return ATTACK[num] || null;
 }
 
 // 그 거리에서 실제로 들어가는 피해

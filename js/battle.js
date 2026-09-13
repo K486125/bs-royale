@@ -1,7 +1,7 @@
 import "./update-overlay.js";   // 업데이트 중에는 화면을 덮고, 끝나면 재실행 버튼을 띄운다
 import { firebaseConfig } from "./firebase-config.js";
-import { unitFrameClass } from "./unit-colors.js";
-import { maxHp, attackOf, damageAt, reloadMs, MAX_ENERGY, ENERGY_PER_SEC, MOVE_COST } from "./unit-stats.js";
+import { unitFrameClass, unitNumber } from "./unit-colors.js";
+import { maxHp, attackOf, attackOfNumber, damageAt, reloadMs, MAX_ENERGY, ENERGY_PER_SEC, MOVE_COST } from "./unit-stats.js";
 import { playSelect } from "./sfx.js";
 import {
   newChatKey, watchChatData, isLastLeaveNotice, noticeEntry, trimRootUpdates
@@ -14,7 +14,7 @@ import {
   setPersistence, browserSessionPersistence
 } from "https://www.gstatic.com/firebasejs/12.18.0/firebase-auth.js";
 import {
-  getDatabase, ref, set, update, onValue, onDisconnect, serverTimestamp
+  getDatabase, ref, set, update, push, onValue, onDisconnect, serverTimestamp
 } from "https://www.gstatic.com/firebasejs/12.18.0/firebase-database.js";
 
 const AVATAR_PATH = "BS_Plr_Icons/";
@@ -462,6 +462,16 @@ function rangeBox(fromKey, tiles, aimed) {
   return box;
 }
 
+// 산탄은 가로 폭이 줄마다 달라서, 앞으로 몇 칸째인지마다 네모를 따로 그린다 (계단 모양 부채꼴).
+// 한 줄로 나가는 공격은 자기 칸부터 끝까지 네모 하나.
+function rangeBoxes(fromKey, tiles, spread) {
+  if (!tiles.length) return [];
+  if (!spread) return [rangeBox(fromKey, tiles, true)];
+  const byDistance = {};
+  tiles.forEach((t) => { (byDistance[t.distance] = byDistance[t.distance] || []).push(t); });
+  return Object.values(byDistance).map((row) => rangeBox(row[0].key, row.slice(1), true));
+}
+
 function renderAttackRange(battle) {
   mapEl.querySelectorAll(".range-box").forEach((el) => el.remove());
   if (!battle || battle.phase !== "playing") return;
@@ -470,22 +480,24 @@ function renderAttackRange(battle) {
   // (쏘자마자 뚝 사라지면 어디로 쐈는지 확인할 틈이 없다)
   if (attackFlash) {
     if (Date.now() < attackFlash.until) {
-      const box = rangeBox(attackFlash.fromKey, attackFlash.tiles, true);
-      box.classList.add("fading");
-      mapEl.appendChild(box);
+      rangeBoxes(attackFlash.fromKey, attackFlash.tiles, attackFlash.spread).forEach((box) => {
+        box.classList.add("fading");
+        mapEl.appendChild(box);
+      });
     }
     return;
   }
 
-  // 그 밖에는 화살표로 조준한 방향의 사거리만 보여준다.
+  // 그 밖에는 화살표로 조준한 방향의 사거리만 보여준다. 벽이나 유닛이 있어도 사거리 전체를 보여준다.
   if (!aimDir) return;
 
   const from = activeTile(battle);
   const unit = myUnitAt(battle, from);
-  if (!unit || !attackOf(unit.file)) return;
+  const spec = attackOf(unit && unit.file);
+  if (!unit || !spec) return;
 
   const tiles = attackTiles(from, aimDir, unit.file);
-  if (tiles.length) mapEl.appendChild(rangeBox(from, tiles, true));
+  rangeBoxes(from, tiles, !!spec.spread).forEach((box) => mapEl.appendChild(box));
 }
 
 // ---------- 카운트다운 ----------
@@ -1114,12 +1126,19 @@ function renderTurnBar(battle) {
 }
 
 // ---------- 공격 ----------
-// 조준한 방향으로 사거리만큼의 칸 (판 밖은 빼고, 자기 칸은 포함하지 않는다).
-// 벽에 닿으면 거기서 끊긴다 (벽 너머는 맞지 않는다).
+// 조준한 방향의 사거리 칸 전체 (판 밖은 빼고, 자기 칸은 포함하지 않는다).
+// 벽이나 유닛이 있어도 끊지 않는다. 실제로 어디까지 맞는지는 공격마다 따로 본다.
+// 산탄은 줄마다 가로로 퍼진 칸들이고, 같은 줄 안에서는 한쪽 끝부터 순서대로 담긴다.
 function attackTiles(fromKey, dirKey, file) {
   const spec = attackOf(file);
   const dir = screenDirection(dirKey);
   if (!spec || !dir || !fromKey) return [];
+
+  if (spec.spread) {
+    return spreadCells(fromKey, dir, spec.spread)
+      .sort((a, b) => a.d - b.d || a.side - b.side)
+      .map((cell) => ({ key: cell.key, distance: cell.d }));
+  }
 
   const { r, c } = parseTile(fromKey);
   const tiles = [];
@@ -1127,10 +1146,172 @@ function attackTiles(fromKey, dirKey, file) {
     const nr = r + dir[0] * d;
     const nc = c + dir[1] * d;
     if (nr < 0 || nr >= ROWS || nc < 0 || nc >= COLS) break;
-    if (isWall(tileKey(nr, nc))) break;
     tiles.push({ key: tileKey(nr, nc), distance: d });
   }
   return tiles;
+}
+
+// 한 줄 공격이 실제로 닿는 칸: 벽을 만나면 거기서 끊긴다.
+function untilWall(tiles) {
+  const out = [];
+  for (const t of tiles) {
+    if (isWall(t.key)) break;
+    out.push(t);
+  }
+  return out;
+}
+
+// ---------- 산탄 (Shelly) ----------
+// dir 은 판 좌표 기준 방향. 옆 방향은 앞 방향을 90도 돌린 것이다.
+// 총알마다 도착 칸을 구하고, 판 밖으로 나가는 총알은 뺀다.
+// 총구(바로 앞 가운데 칸)도 함께 돌려준다 (d: 1, side: 0, muzzle: true).
+function spreadCells(fromKey, dir, spread) {
+  const { r, c } = parseTile(fromKey);
+  const side = [dir[1], dir[0]];
+  const cell = (d, sd) => ({ r: r + dir[0] * d + side[0] * sd, c: c + dir[1] * d + side[1] * sd });
+  const onBoard = (p) => p.r >= 0 && p.r < ROWS && p.c >= 0 && p.c < COLS;
+
+  const out = [];
+  const muzzle = cell(1, 0);
+  if (onBoard(muzzle)) out.push({ key: tileKey(muzzle.r, muzzle.c), d: 1, side: 0, muzzle: true, damage: 0 });
+  spread.bullets.forEach((b) => {
+    const p = cell(b.d, b.side);
+    if (onBoard(p)) out.push({ key: tileKey(p.r, p.c), d: b.d, side: b.side, damage: b.damage });
+  });
+  return out;
+}
+
+const DIR_NAME = { "-1,0": "n", "1,0": "s", "0,-1": "w", "0,1": "e" };
+const DIR_VEC = { n: [-1, 0], s: [1, 0], w: [0, -1], e: [0, 1] };
+
+// 맞은 칸별 피해를 모아 체력 쓰기로 바꾼다. 체력이 0이 된 유닛은 판에서 내린다.
+function hitUpdates(battle, hits) {
+  const opp = battle[oppField()] || {};
+  const oppRole = isHost ? "guest" : "host";
+  const updates = {};
+  Object.keys(hits).forEach((key) => {
+    const target = opp[key];
+    if (!target || hits[key] <= 0) return;
+    const slot = target.slot ?? 0;
+    const remaining = Math.max(0, hpOf(battle, oppRole, slot, target.file) - hits[key]);
+    updates[`${oppRole}Hp/${slot}`] = remaining;
+    if (remaining === 0) updates[`${oppField()}/${key}`] = null;
+  });
+  return updates;
+}
+
+// 쏜 쪽이 총알 도착 시각에 맞춰 판정한다. 그 순간 그 칸에 서 있는 적만 맞는다.
+//  1칸째 도착: 총구가 벽이면 모든 총알이 막힌다. 총구에 적이 있으면 모든 총알이 그 적에게 들어간다.
+//              아니면 옆 두 칸의 총알이 떨어진다.
+//  2칸째 도착: 다섯 칸의 총알이 떨어진다 (도착 칸이 벽이면 그 총알은 막힌다).
+function resolveSpread(fromKey, dir, spread, shotId, elapsedMs) {
+  const cells = spreadCells(fromKey, dir, spread);
+  const muzzle = cells.find((cell) => cell.muzzle);
+  const total = spread.bullets.reduce((sum, b) => sum + b.damage, 0);
+  const shotPath = { [`shots/${shotId}`]: null };
+  let ended = false;
+
+  const write = (updates) => update(ref(db, `rooms/${roomId}/battle`), updates)
+    .catch((err) => console.error("총알 판정 실패:", err));
+  const live = () => {
+    const battle = currentRoom && currentRoom.battle;
+    return battle && battle.phase === "playing" ? battle : null;
+  };
+  const landed = (battle, distance) => {
+    const opp = battle[oppField()] || {};
+    const hits = {};
+    cells.filter((cell) => cell.d === distance && !cell.muzzle && !isWall(cell.key) && opp[cell.key])
+      .forEach((cell) => { hits[cell.key] = (hits[cell.key] || 0) + cell.damage; });
+    return hitUpdates(battle, hits);
+  };
+
+  setTimeout(() => {
+    const battle = live();
+    if (!battle) { ended = true; return; }
+    const opp = battle[oppField()] || {};
+
+    if (!muzzle || isWall(muzzle.key)) {
+      ended = true;
+      write(shotPath);
+      return;
+    }
+    if (opp[muzzle.key]) {
+      ended = true;
+      write({ ...hitUpdates(battle, { [muzzle.key]: total }), ...shotPath });
+      return;
+    }
+    const updates = landed(battle, 1);
+    if (Object.keys(updates).length) write(updates);
+  }, Math.max(0, spread.tileMs - elapsedMs));
+
+  setTimeout(() => {
+    if (ended) return;
+    const battle = live();
+    if (!battle) return;
+    write({ ...landed(battle, 2), ...shotPath });
+  }, Math.max(0, spread.tileMs * 2 - elapsedMs));
+}
+
+// 구슬 총알 그리기. 발사 기록을 보고 양쪽 화면이 같은 시각에 맞춰 그린다.
+// 날아가는 동안에는 주고받는 것이 없다. 그림은 각자 자기 화면의 판을 보고 총구에서 막힐지 정한다.
+const shownShots = new Set();
+function renderShots(battle) {
+  const shots = battle.shots || {};
+  Object.keys(shots).forEach((id) => {
+    if (shownShots.has(id)) return;
+    const shot = shots[id];
+    const spec = shot && attackOfNumber(shot.unit);
+    const dir = shot && DIR_VEC[shot.dir];
+    if (!spec || !spec.spread || !dir || !shot.from) { shownShots.add(id); return; }
+
+    const age = serverTimeReady() && typeof shot.at === "number" ? Math.max(0, serverNow() - shot.at) : 0;
+    if (age >= spec.spread.tileMs * 2) { shownShots.add(id); return; }
+    if (!mapViewportEl.clientWidth) return; // 판이 아직 가려져 있으면 다음에 그린다
+
+    shownShots.add(id);
+    animateSpread(shot, dir, spec.spread, age);
+  });
+}
+
+function tileCenter(key) {
+  const { r, c } = parseTile(key);
+  const tile = mapEl.querySelector(`.tile[data-row="${r}"][data-col="${c}"]`);
+  if (!tile) return null;
+  return { x: tile.offsetLeft + tile.offsetWidth / 2, y: tile.offsetTop + tile.offsetHeight / 2 };
+}
+
+function animateSpread(shot, dir, spread, age) {
+  const start = tileCenter(shot.from);
+  if (!start) return;
+  const cells = spreadCells(shot.from, dir, spread);
+  const muzzle = cells.find((cell) => cell.muzzle);
+  const mid = muzzle ? tileCenter(muzzle.key) : null;
+  const mine = shot.by === myRole();
+  const at = (p) => `translate(${p.x}px, ${p.y}px) translate(-50%, -50%)`;
+
+  const bullets = [];
+  cells.filter((cell) => !cell.muzzle).forEach((cell) => {
+    const end = tileCenter(cell.key);
+    if (!end) return;
+    const el = document.createElement("div");
+    el.className = "bullet " + (mine ? "mine" : "foe");
+    mapEl.appendChild(el);
+    // 1칸째 총알은 곧장, 2칸째 총알은 총구를 지나 퍼진다.
+    const frames = cell.d === 1 || !mid
+      ? [{ transform: at(start) }, { transform: at(end) }]
+      : [{ transform: at(start) }, { transform: at(mid) }, { transform: at(end) }];
+    const anim = el.animate(frames, { duration: spread.tileMs * cell.d, delay: -age, fill: "forwards", easing: "linear" });
+    anim.onfinish = () => el.remove();
+    bullets.push(el);
+  });
+
+  // 총구에 벽이나 쏜 쪽의 적이 있으면, 총알이 모두 거기서 멈춘다.
+  setTimeout(() => {
+    const battle = currentRoom && currentRoom.battle;
+    if (!battle || !muzzle) return;
+    const enemies = battle[shot.by === "host" ? "guestPlacements" : "hostPlacements"] || {};
+    if (isWall(muzzle.key) || enemies[muzzle.key]) bullets.forEach((el) => el.remove());
+  }, Math.max(0, spread.tileMs - age));
 }
 
 // 어떤 칸을 둘러싼 여덟 칸 (대각선까지, 판 안쪽만)
@@ -1215,14 +1396,11 @@ async function fireAttack() {
   if (!unit || !spec) return;
 
   // 광역이면 사거리 안의 적을 모두, 단일이면 가장 가까운 적 하나만 때린다.
+  // 적이 없어도 쏠 수 있다 (허공에 쏘면 탄창만 줄어든다). 벽 너머는 맞지 않는다.
   const opp = battle[oppField()] || {};
   const line = attackTiles(from, aimDir, unit.file);
-  const inRange = line.filter((t) => opp[t.key]);
+  const inRange = spec.spread ? [] : untilWall(line).filter((t) => opp[t.key]);
   const targets = spec.splash ? inRange : inRange.slice(0, 1);
-  if (!targets.length) {
-    pushNotice("범위 내에 적 유닛이 없습니다.", { group: "attack", duration: 1800 });
-    return;
-  }
 
   const slot = unit.slot ?? 0;
   const ammo = ammoOf(battle, myRole(), slot, unit.file);
@@ -1236,6 +1414,16 @@ async function fireAttack() {
     actedAt: serverTimestamp(),
     ...spendAmmo(battle, slot, unit.file)
   };
+
+  // 산탄은 지금 피해를 넣지 않고 발사 기록만 남긴다. 총알이 도착하는 순간 판정한다.
+  let shotId = null;
+  const shotDir = screenDirection(aimDir);
+  if (spec.spread) {
+    shotId = push(ref(db, `rooms/${roomId}/battle/shots`)).key;
+    updates[`shots/${shotId}`] = {
+      by: myRole(), from, dir: DIR_NAME[shotDir.join(",")], unit: unitNumber(unit.file), at: serverTimestamp()
+    };
+  }
 
   const hurt = (key, amount) => {
     const target = opp[key];
@@ -1274,17 +1462,20 @@ async function fireAttack() {
 
   attackInFlight = true;
   playSelect();
+  const firedAt = Date.now();
   try {
     await update(ref(db, `rooms/${roomId}/battle`), updates);
     aimDir = null;
+    // 총알은 쏜 순간부터 날아가고 있었으므로, 쓰기가 오간 시간만큼 당겨서 판정한다.
+    if (shotId) resolveSpread(from, shotDir, spec.spread, shotId, Date.now() - firedAt);
     // 005의 튕김은 곧바로 들어가지 않고 1초 뒤에 옆 적에게 닿는다.
     // 그동안 그 적 위에 느낌표를 띄워 어디로 튀는지 보여준다.
     if (bounceTo) {
       setTimeout(() => applyLateDamage(bounceTo.key, bounceTo.damage, { bounceMark: null }), BOUNCE_DELAY_MS);
     }
     // 006처럼 자리에 남는 공격: 맞은 칸을 정해진 횟수만큼 계속 태운다.
-    if (spec.dot) scheduleDot(targets[0].key, spec.dot);
-    attackFlash = { fromKey: from, tiles: line, until: Date.now() + ATTACK_FLASH_MS };
+    if (spec.dot && targets.length) scheduleDot(targets[0].key, spec.dot);
+    attackFlash = { fromKey: from, tiles: line, spread: !!spec.spread, until: Date.now() + ATTACK_FLASH_MS };
     setTimeout(() => {
       attackFlash = null;
       if (currentRoom && currentRoom.battle) renderBattle(currentRoom);
@@ -1536,6 +1727,7 @@ function renderBattle(room) {
   if (battle.phase === "playing") showDamage(battle);
   renderMoveHints(battle);
   renderAttackRange(battle);
+  renderShots(battle);
   renderCountdown(battle);
   renderTurnBar(battle);
   updateCamera(battle);
