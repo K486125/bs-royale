@@ -55,7 +55,15 @@ try {
 }
 
 // 3) 버전 올리기 (package.json 수정 + git commit + git tag vX.Y.Z 까지 npm이 알아서 함)
-run(`npm version ${bump} -m "chore: release v%s"`);
+//    지난 실행이 버전만 올리고 멈췄다면(태그가 로컬에만 있고 원격에는 없음) 새로 올리지 않고 그 버전으로 이어간다.
+const currentVersion = JSON.parse(fs.readFileSync("package.json", "utf8")).version;
+const unfinished = runCapture(`git tag -l v${currentVersion}`) !== "" &&
+  runCapture(`git ls-remote --tags origin v${currentVersion}`) === "";
+if (unfinished) {
+  console.log(`\nv${currentVersion} 배포가 끝나지 않은 채 멈춰 있어, 버전을 올리지 않고 이어서 진행합니다.`);
+} else {
+  run(`npm version ${bump} -m "chore: release v%s"`);
+}
 
 const version = require("../package.json").version;
 const tag = `v${version}`;
@@ -73,13 +81,24 @@ function findReleases() {
 // 4) 초안을 먼저 하나 만들어 둔다.
 //    electron-builder 는 설치 파일과 blockmap 을 동시에 올리는데, 초안이 없으면 둘이 각자 초안을 만들어
 //    파일이 두 초안에 나뉘어 버린다(1.0.8 때 실제로 그랬다). 미리 있으면 둘 다 그 초안에 올린다.
+//    GitHub 목록에는 방금 만든 초안이 몇 초 늦게 보인다. 목록에 보이기 전에 빌드를 시작하면
+//    electron-builder 가 초안을 못 찾고 또 만들기 때문에, 보일 때까지 기다린다.
+function sleep(ms) {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
 if (findReleases().length === 0) {
   runCapture(`${gh} api -X POST repos/${REPO}/releases -f tag_name=${tag} -f name=${version} -F draft=true`);
 }
 {
-  const found = findReleases();
+  let found = findReleases();
+  for (let i = 0; i < 30 && found.length === 0; i++) {
+    sleep(2000);
+    found = findReleases();
+  }
   if (found.length !== 1) {
-    console.error(`\n${tag} 릴리스가 ${found.length}개 있습니다. GitHub Releases 에서 하나만 남기고 다시 실행하세요.`);
+    console.error(found.length === 0
+      ? `\n${tag} 초안을 만들었지만 1분이 지나도 목록에 보이지 않습니다. 잠시 뒤 다시 실행하세요.`
+      : `\n${tag} 릴리스가 ${found.length}개 있습니다. GitHub Releases 에서 하나만 남기고 다시 실행하세요.`);
     process.exit(1);
   }
 }
