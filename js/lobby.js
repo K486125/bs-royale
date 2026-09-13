@@ -4,6 +4,7 @@ import { playSelect } from "./sfx.js";
 import { newChatKey, writeNotice, chatRef } from "./chat.js";
 import { loadSettings, saveSettings } from "./settings.js";
 import { pushNotice } from "./notice.js";
+import { DEV_TOOLS, DEV_DEFAULT_UNITS } from "./dev-flags.js";
 import { initServerTime, serverNow, serverTimeReady } from "./server-time.js";
 import { initializeApp } from "https://www.gstatic.com/firebasejs/12.18.0/firebase-app.js";
 import {
@@ -96,10 +97,11 @@ function avatarUrl(file) {
   return AVATAR_PATH + file;
 }
 
-// 대기실에 들어가면 유닛이 이미 장착돼 있다 (바로 준비를 누를 수 있게).
-// 지금은 새로 만든 004~006을 시험하기 위해 그 셋을 기본으로 둔다.
+// 대기실에 들어갈 때의 장착 상태.
+// 공유용에서는 빈 손으로 시작해 직접 고르고, 개발용에서는 시험할 유닛이 미리 끼워져 있다.
 function defaultUnits() {
-  return AVATARS.slice(3, 6);
+  if (!DEV_TOOLS) return [];
+  return DEV_DEFAULT_UNITS.map((i) => AVATARS[i]).filter(Boolean);
 }
 
 function avatarCardMarkup(file) {

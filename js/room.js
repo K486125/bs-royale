@@ -308,12 +308,13 @@ function renderMyRow(name, avatarFile, units, ready, showCrown) {
   });
 }
 
-function unitPickCardMarkup(file) {
+// 이미 이 칸에 끼워둔 유닛이면 "선택" 대신 "해제"를 보여준다.
+function unitPickCardMarkup(file, equipped) {
   return `
-    <li class="bs-card">
+    <li class="bs-card${equipped ? " equipped" : ""}">
       <div class="portrait-frame ${unitFrameClass(file)}"><img class="card-portrait" src="${AVATAR_PATH}${file}" alt=""></div>
       <div class="card-label">${unitNumber(file)}</div>
-      <div class="card-bar bar-select pick-unit" data-file="${file}">선택</div>
+      <div class="card-bar ${equipped ? "bar-clear clear-unit" : "bar-select pick-unit"}" data-file="${file}">${equipped ? "해제" : "선택"}</div>
     </li>
   `;
 }
@@ -321,10 +322,16 @@ function unitPickCardMarkup(file) {
 function openUnitPicker(slot) {
   // 지금은 모든 유닛이 항상 선택 가능하므로 보유 수 = 전체 수
   unitCountEl.textContent = `${AVATARS.length}/${AVATARS.length}`;
-  unitPickerRow.innerHTML = AVATARS.map(unitPickCardMarkup).join("");
+  const myUnits = currentRoom ? (currentIsHost ? currentRoom.hostUnits : currentRoom.guestUnits) : null;
+  const here = unitAt(myUnits, slot);
+  unitPickerRow.innerHTML = AVATARS.map((file) => unitPickCardMarkup(file, file === here)).join("");
   unitPickerRow.scrollLeft = 0;
   unitPickerRow.querySelectorAll(".pick-unit").forEach((el) => {
     el.addEventListener("click", () => selectUnit(slot, el.dataset.file));
+  });
+  // 해제하면 그 칸이 다시 빈칸이 된다.
+  unitPickerRow.querySelectorAll(".clear-unit").forEach((el) => {
+    el.addEventListener("click", () => selectUnit(slot, null));
   });
   unitModal.classList.remove("hidden");
 }
@@ -340,6 +347,7 @@ unitPickerRow.addEventListener("wheel", (e) => {
   unitPickerRow.scrollLeft += e.deltaY * 2.2;
 }, { passive: false });
 
+// file 이 null 이면 그 칸을 비운다 (해제).
 async function selectUnit(slot, file) {
   playSelect();
   const field = currentIsHost ? "hostUnits" : "guestUnits";

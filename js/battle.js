@@ -1,5 +1,6 @@
 import { firebaseConfig } from "./firebase-config.js";
 import { unitFrameClass } from "./unit-colors.js";
+import { DEV_TOOLS } from "./dev-flags.js";
 import { maxHp, attackOf, damageAt, costOf, reloadMs, MAX_ENERGY, ENERGY_PER_SEC } from "./unit-stats.js";
 import { playSelect } from "./sfx.js";
 import {
@@ -340,8 +341,11 @@ window.addEventListener("keydown", (e) => {
 // 켜두면 배치 단계가 시작되는 순간 내 유닛을 내 진영 빈칸에 무작위로 한 번에 놓는다.
 // 배치가 끝나면 평소처럼 자동으로 "배치 완료"까지 이어진다.
 const AUTO_PLACE_KEY = "bs_auto_place";
-let autoPlace = localStorage.getItem(AUTO_PLACE_KEY) === "1";
+let autoPlace = DEV_TOOLS && localStorage.getItem(AUTO_PLACE_KEY) === "1";
 let autoPlaceInFlight = false;
+
+// 공유용에서는 스위치 자체를 감춘다.
+if (!DEV_TOOLS) autoPlaceBtn.closest(".auto-place").classList.add("hidden");
 
 function renderAutoPlaceBtn() {
   autoPlaceBtn.classList.toggle("on", autoPlace);
@@ -349,6 +353,7 @@ function renderAutoPlaceBtn() {
 }
 
 autoPlaceBtn.addEventListener("click", () => {
+  if (!DEV_TOOLS) return;
   if (autoPlaceInFlight) return; // 놓는 중에는 다시 받지 않는다
   autoPlace = !autoPlace;
   localStorage.setItem(AUTO_PLACE_KEY, autoPlace ? "1" : "0");
@@ -361,6 +366,7 @@ autoPlaceBtn.addEventListener("click", () => {
 renderAutoPlaceBtn();
 
 function maybeAutoPlace(myPlacements) {
+  if (!DEV_TOOLS) return;
   if (!autoPlace || autoPlaceInFlight || myDone || doneRequested) return;
 
   const battle = currentRoom && currentRoom.battle;

@@ -1985,3 +1985,7 @@ body.battle-page {
 .chat-msg.enter.mine .chat-bubble { animation: chat-in-right .3s cubic-bezier(.16,.9,.3,1); }
 .chat-msg.enter.theirs .chat-bubble { animation: chat-in-left .3s cubic-bezier(.16,.9,.3,1); }
 .chat-notice.enter { animation: chat-notice-in .3s cubic-bezier(.16,.9,.3,1); }
+
+/* 유닛 고르기 창: 이미 끼워둔 유닛은 테두리로 표시하고, 누르면 해제된다 */
+.card-bar.bar-clear { background: linear-gradient(180deg, #ff8f8f, #d8453f); color: #fff; cursor: pointer; }
+.bs-card.equipped .portrait-frame { outline: 3px solid #ffd34d; outline-offset: 2px; }
