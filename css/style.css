@@ -1115,20 +1115,17 @@ body.battle-page {
   font-family: inherit;
   font-size: 15px;
   font-weight: 900;
-  cursor: pointer;
-  box-shadow: 0 4px 0 #1d2246;
-  transition: transform .06s ease, box-shadow .06s ease, filter .15s ease;
-}
-.action-btn:hover:not(:disabled) { filter: brightness(1.1); }
-.action-btn:active:not(:disabled) {
-  transform: translateY(4px);
-  box-shadow: 0 0 0 #1d2246;
-}
-.action-btn:disabled {
-  opacity: .45;
+  text-align: center;
   cursor: default;
+  user-select: none;
+  box-shadow: 0 4px 0 #1d2246;
+  transition: opacity .15s ease;
 }
-/* 지금 고른 행동 */
+/* 지금 에너지·탄창으로 할 수 없는 행동 */
+.action-btn.off {
+  opacity: .45;
+}
+/* 조준 중 */
 .action-btn.on {
   background: var(--accent);
   border-color: var(--accent-edge);

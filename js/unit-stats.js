@@ -32,17 +32,33 @@ const ATTACK = {
   }
 };
 
+// 유닛 유형. 이동에 드는 에너지는 유형이 정한다.
+const ROLE = {
+  "001": "dealer",     // Shelly
+  "002": "dealer",     // Nita
+  "003": "dealer",     // Colt
+  "004": "tank",       // Bull
+  "005": "controller", // Jessie
+  "006": "sniper"      // Brock
+};
+const MOVE_COST_BY_ROLE = {
+  dealer: 20,      // 대미지 딜러
+  controller: 10,  // 컨트롤러
+  tank: 30,        // 탱커
+  sniper: 25       // 저격수
+};
+
 // 행동에 드는 에너지. 에너지는 사람마다 하나이고(초당 10, 최대 100),
-// 이동과 공격 비용은 유닛마다 다르다.
+// 이동 비용은 유형별, 공격 비용은 유닛별이다.
 const MAX_ENERGY = 100;
 const ENERGY_PER_SEC = 10;
-const COST = {
-  "001": { move: 20, attack: 15 },
-  "002": { move: 15, attack: 20 },
-  "003": { move: 25, attack: 25 },
-  "004": { move: 30, attack: 30 },
-  "005": { move: 20, attack: 25 },
-  "006": { move: 35, attack: 20 }
+const ATTACK_COST = {
+  "001": 15,
+  "002": 20,
+  "003": 25,
+  "004": 30,
+  "005": 25,
+  "006": 20
 };
 const FALLBACK_COST = { move: 25, attack: 25 };
 
@@ -62,8 +78,10 @@ export { MAX_ENERGY, ENERGY_PER_SEC };
 
 // action: "move" | "attack"
 export function costOf(file, action) {
-  const table = (file && COST[unitNumber(file)]) || FALLBACK_COST;
-  return table[action] || 0;
+  const num = file ? unitNumber(file) : null;
+  if (action === "move") return MOVE_COST_BY_ROLE[ROLE[num]] || FALLBACK_COST.move;
+  if (action === "attack") return ATTACK_COST[num] || FALLBACK_COST.attack;
+  return 0;
 }
 
 export function reloadMs(file) {

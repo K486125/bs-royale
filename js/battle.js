@@ -70,8 +70,7 @@ let turnInterval = null;
 // 칸으로 기억하면 한 칸 움직이는 순간 그 칸이 비어서 선택이 풀려버린다.
 let activeSlot = null;
 let sharedSelection = null; // 방 데이터에 적어둔 내 선택 (상대 화면에 표시하기 위함)
-let actionMode = null;     // 그 유닛으로 무엇을 할지: "move" | "attack"
-let aimDir = null;         // 공격 조준 방향 (방향키로 정하고 엔터로 쏜다)
+let aimDir = null;         // 공격 조준 방향 (방향키로 정하고 스페이스로 쏜다)
 let attackFlash = null;    // 방금 쏜 사거리 (바로 지우지 않고 잠깐 남겨 사라지는 모습을 보여준다)
 let matchFinished = false; // 정상 종료로 대기실에 돌아가는 중인지 (상대 이탈과 구분)
 
@@ -322,20 +321,13 @@ function selectUnitSlot(slot) {
   renderSidebar(myPlacements);
 }
 
-// 1, 2, 3 키로 유닛을 고르고, W 키로 이동을 고른다.
-// 같은 키를 다시 누르면 선택이 풀린다.
+// 1, 2, 3 키로 유닛을 고른다. 같은 키를 다시 누르면 선택이 풀린다.
+// (고른 뒤의 이동·조준·공격 키는 아래 전투 조작에서 받는다)
 window.addEventListener("keydown", (e) => {
   if (e.repeat || e.ctrlKey || e.altKey || e.metaKey) return;
 
   const slot = ["1", "2", "3"].indexOf(e.key);
-  if (slot !== -1) {
-    selectUnitSlot(slot);
-    return;
-  }
-
-  // 한글 입력 상태에서도 같은 자리의 키가 먹도록 e.code를 함께 본다.
-  if (e.code === "KeyW" || (e.key || "").toLowerCase() === "w") chooseMove();
-  else if (e.code === "KeyA" || (e.key || "").toLowerCase() === "a") chooseAttack();
+  if (slot !== -1) selectUnitSlot(slot);
 });
 
 // ---------- 자동 배치 (개발/테스트용) ----------
@@ -479,9 +471,8 @@ function renderMoveHints(battle) {
     tile.classList.remove("move-hint", "move-up", "move-down", "move-left", "move-right");
   });
 
-  // 이동을 고른 뒤에만 화살표를 보여준다 (고르기만 했을 때는 아무것도 표시하지 않는다).
+  // 유닛을 고르면 WASD로 갈 수 있는 방향을 보여준다.
   if (!battle || battle.phase !== "playing") return;
-  if (actionMode !== "move") return;
   if (moveInFlight || onActionCooldown()) return; // 아직 다음 행동을 받지 않는 동안
 
   const from = activeTile(battle);
@@ -527,19 +518,15 @@ function renderAttackRange(battle) {
     return;
   }
 
-  // 그 밖에는 공격을 고른 뒤에만 사거리를 보여준다.
-  if (actionMode !== "attack") return;
+  // 그 밖에는 화살표로 조준한 방향의 사거리만 보여준다.
+  if (!aimDir) return;
 
   const from = activeTile(battle);
   const unit = myUnitAt(battle, from);
   if (!unit || !attackOf(unit.file)) return;
 
-  // 아직 조준 전이면 네 방향을 모두, 조준했으면 그 방향만 진하게 보여준다.
-  const keys = aimDir ? [aimDir] : Object.keys(DIRECTIONS);
-  keys.forEach((key) => {
-    const tiles = attackTiles(from, key, unit.file);
-    if (tiles.length) mapEl.appendChild(rangeBox(from, tiles, aimDir === key));
-  });
+  const tiles = attackTiles(from, aimDir, unit.file);
+  if (tiles.length) mapEl.appendChild(rangeBox(from, tiles, true));
 }
 
 function onTileClick(e) {
@@ -890,7 +877,7 @@ async function moveUnit(fromKey, dir) {
   };
 
   // 선택은 번호로 잡고 있으므로, 칸이 바뀌어도 같은 유닛을 계속 조작한다.
-  // 이동 준비(W)도 그대로 유지되어 방향키만 다시 누르면 이어서 움직인다.
+  // 조준 방향도 그대로 두어, 움직인 자리에서 바로 스페이스로 쏠 수 있다.
   moveInFlight = true;
   playSelect();
   try {
@@ -952,8 +939,7 @@ function shareSelection(key) {
     .catch((err) => console.error("선택 표시 실패:", err));
 }
 
-// 조작할 유닛을 고른다. 고르기만 해서는 아무 일도 일어나지 않고,
-// 이동인지 공격인지 한 번 더 선택해야 한다.
+// 조작할 유닛을 고른다. 고른 뒤에는 WASD로 이동, 화살표로 조준, 스페이스로 공격한다.
 // 빠르게 여러 번 누르면 선택이 켜졌다 꺼졌다 하며 방 데이터에 쓰기가 몰린다.
 // 아주 짧은 간격의 반복은 무시한다.
 const SELECT_GAP_MS = 160;
@@ -971,55 +957,29 @@ function selectUnitAt(key) {
   if (!mine[key]) return;
 
   const slot = mine[key].slot ?? 0;
-  // 같은 유닛을 다시 누르면 해제, 다른 유닛을 고르면 이동 준비는 처음부터 다시.
+  // 같은 유닛을 다시 누르면 해제, 다른 유닛을 고르면 조준은 처음부터 다시.
   activeSlot = (activeSlot === slot) ? null : slot;
-  actionMode = null;
   aimDir = null;
   renderBattle(currentRoom);
 }
 
-function chooseMove() {
-  const battle = currentRoom && currentRoom.battle;
-  if (!battle || battle.phase !== "playing") return;
-  if (moveInFlight || attackInFlight) return; // 쓰기가 오가는 중에는 바꾸지 않는다
+// WASD는 화면 기준 네 방향 이동. 한글 입력 상태에서도 같은 자리의 키가 먹도록 e.code로 본다.
+const MOVE_KEYS = { KeyW: "ArrowUp", KeyA: "ArrowLeft", KeyS: "ArrowDown", KeyD: "ArrowRight" };
 
-  // 같은 키를 한 번 더 누르면 준비를 푼다 (화살표와 사거리가 사라진다).
-  if (actionMode === "move") {
-    actionMode = null;
-    aimDir = null;
-    renderBattle(currentRoom);
-    return;
-  }
-
-  if (activeSlot === null) {
-    pushNotice("움직일 유닛을 먼저 고르세요.", { group: "turn", duration: 1600 });
-    return;
-  }
-  actionMode = "move";
-  aimDir = null;
-  renderBattle(currentRoom);
-}
-
-actMoveBtn.addEventListener("click", chooseMove);
-actAttackBtn.addEventListener("click", chooseAttack);
-
-// 방향키로 한 칸씩 움직인다.
+// 전투 조작: 유닛을 고른 뒤 WASD 이동, 화살표 조준, 스페이스 공격.
 window.addEventListener("keydown", (e) => {
-  if (e.repeat) return; // 누르고 있어도 한 번만 (한 칸씩 눌러서 움직인다)
+  if (e.ctrlKey || e.altKey || e.metaKey) return;
 
   const battle = currentRoom && currentRoom.battle;
   if (!battle || battle.phase !== "playing") return;
 
-  // 엔터는 조준한 방향으로 실제 공격을 내보낸다.
-  if (e.key === "Enter") {
-    e.preventDefault();
-    fireAttack();
-    return;
-  }
-
-  const dirKey = DIRECTIONS[e.key] ? e.key : null;
-  if (!dirKey) return;
-  e.preventDefault(); // 방향키로 화면이 스크롤되지 않도록
+  const moveKey = MOVE_KEYS[e.code];
+  const aimKey = DIRECTIONS[e.key] ? e.key : null;
+  const isSpace = e.code === "Space";
+  if (!moveKey && !aimKey && !isSpace) return;
+  // 화면 스크롤, 그리고 포커스된 버튼이 스페이스로 눌리는 것을 막는다.
+  e.preventDefault();
+  if (e.repeat) return; // 누르고 있어도 한 번만
 
   const from = activeTile(battle);
   if (!from) {
@@ -1027,16 +987,9 @@ window.addEventListener("keydown", (e) => {
     return;
   }
 
-  // 공격 중이면 방향키는 조준만 한다 (쏘는 것은 엔터).
-  if (actionMode === "attack") {
-    aimAt(dirKey);
-    return;
-  }
-  if (actionMode !== "move") {
-    pushNotice("이동(W) 또는 공격(A)을 먼저 선택하세요.", { group: "turn", duration: 1600 });
-    return;
-  }
-  moveUnit(from, screenDirection(dirKey));
+  if (isSpace) fireAttack();
+  else if (aimKey) aimAt(aimKey);
+  else moveUnit(from, screenDirection(moveKey));
 });
 
 // ---------- 체력 ----------
@@ -1261,16 +1214,21 @@ function renderTurnSidebar(myPlacements) {
 
   const canAct = activeSlot !== null;
   turnActionsEl.classList.toggle("hidden", !canAct);
-  actMoveBtn.classList.toggle("on", actionMode === "move");
-  actAttackBtn.classList.toggle("on", actionMode === "attack");
-  // 공격 수치가 있고 탄창이 남은 유닛만 누를 수 있다.
-  actAttackBtn.disabled = !canAttackNow(battle);
+  actAttackBtn.classList.toggle("on", !!aimDir);
 
-  // 버튼에는 그 행동에 드는 에너지를 함께 보여준다. (재장전은 시간이 알아서 한다)
+  // 판 아래 안내에는 키와 그 행동에 드는 에너지를 함께 보여준다. (재장전은 시간이 알아서 한다)
   const unit = myUnitAt(battle, activeTile(battle));
-  actMoveBtn.textContent = unit ? `이동 (W) ${costOf(unit.file, "move")}` : "이동 (W)";
-  actAttackBtn.textContent = unit ? `공격 (A) ${costOf(unit.file, "attack")}` : "공격 (A)";
-  actMoveBtn.disabled = !unit || energyOf(battle, myRole()) + 0.5 < costOf(unit.file, "move");
+  actMoveBtn.textContent = unit ? `이동 WASD ${costOf(unit.file, "move")}` : "이동 WASD";
+  actAttackBtn.textContent = unit ? `조준 ←↑↓→ · 공격 Space ${costOf(unit.file, "attack")}` : "조준 ←↑↓→ · 공격 Space";
+  paintActionGuide(battle);
+}
+
+// 지금 에너지·탄창으로 할 수 없는 행동은 흐리게 보여준다.
+function paintActionGuide(battle) {
+  const unit = myUnitAt(battle, activeTile(battle));
+  if (!unit) return;
+  actMoveBtn.classList.toggle("off", energyOf(battle, myRole()) + 0.5 < costOf(unit.file, "move"));
+  actAttackBtn.classList.toggle("off", !canAttackNow(battle));
 }
 
 // 에너지 원형 게이지. 한 번 만들어 둔 것을 계속 쓰고, 여기서는 채워진 길이와
@@ -1309,12 +1267,8 @@ function tickEnergy() {
 
   startPaintLoop();
 
-  // 에너지가 차면서 쓸 수 있게 된 버튼을 열어준다.
-  const unit = myUnitAt(battle, activeTile(battle));
-  if (unit) {
-    actMoveBtn.disabled = energyOf(battle, myRole()) + 0.5 < costOf(unit.file, "move");
-    actAttackBtn.disabled = !canAttackNow(battle);
-  }
+  // 에너지가 차면서 할 수 있게 된 행동을 다시 밝힌다.
+  paintActionGuide(battle);
 }
 
 // 오른쪽 사이드바: 상대 유닛의 상태만 보여준다 (고를 수 없고 단축키도 없다).
@@ -1427,47 +1381,24 @@ function hasAnyAttack(battle) {
   });
 }
 
-function chooseAttack() {
-  const battle = currentRoom && currentRoom.battle;
-  if (!battle || battle.phase !== "playing") return;
+// 화살표는 조준만 한다. 실제 공격은 스페이스.
+// 같은 방향을 한 번 더 누르면 조준을 푼다.
+function aimAt(dirKey) {
   if (moveInFlight || attackInFlight) return;
-
-  // 같은 키를 한 번 더 누르면 조준을 푼다.
-  if (actionMode === "attack") {
-    actionMode = null;
+  if (aimDir === dirKey) {
     aimDir = null;
     renderBattle(currentRoom);
     return;
   }
-
-  if (activeSlot === null) {
-    pushNotice("공격할 유닛을 먼저 고르세요.", { group: "turn", duration: 1600 });
-    return;
-  }
-
-  const unit = myUnitAt(battle, activeTile(battle));
-  if (!unit || !attackOf(unit.file)) {
-    pushNotice("이 유닛은 아직 공격할 수 없습니다.", { group: "attack", duration: 1800 });
-    return;
-  }
-  if (ammoOf(battle, myRole(), unit.slot ?? 0, unit.file) <= 0) {
-    pushNotice("탄창이 비었습니다.\n잠시 뒤 한 발이 찹니다.", { group: "attack", duration: 2000 });
-    return;
-  }
-  if (!affordable(battle, unit, "attack")) return;
-  actionMode = "attack";
-  aimDir = null;
-  renderBattle(currentRoom);
-}
-
-// 방향키는 조준만 한다. 실제 공격은 엔터.
-function aimAt(dirKey) {
-  if (aimDir === dirKey) return; // 같은 방향을 다시 눌러도 다시 그리지 않는다
   const battle = currentRoom && currentRoom.battle;
   const from = activeTile(battle);
   const unit = myUnitAt(battle, from);
   if (!unit) return;
 
+  if (!attackOf(unit.file)) {
+    pushNotice("이 유닛은 아직 공격할 수 없습니다.", { group: "attack", duration: 1800 });
+    return;
+  }
   if (!attackTiles(from, dirKey, unit.file).length) {
     pushNotice("공격할 수 없는 방향입니다.", { group: "attack", duration: 1800 });
     return;
@@ -1479,10 +1410,9 @@ function aimAt(dirKey) {
 async function fireAttack() {
   const battle = currentRoom && currentRoom.battle;
   if (!battle || battle.phase !== "playing" || actionBusy()) return;
-  if (actionMode !== "attack") return;
 
   if (!aimDir) {
-    pushNotice("공격 방향을 먼저 정하세요.", { group: "attack", duration: 1600 });
+    pushNotice("화살표로 공격 방향을 먼저 정하세요.", { group: "attack", duration: 1600 });
     return;
   }
 
@@ -1556,7 +1486,6 @@ async function fireAttack() {
   playSelect();
   try {
     await update(ref(db, `rooms/${roomId}/battle`), updates);
-    actionMode = null;
     aimDir = null;
     // 005의 튕김은 곧바로 들어가지 않고 1초 뒤에 옆 적에게 닿는다.
     // 그동안 그 적 위에 느낌표를 띄워 어디로 튀는지 보여준다.
@@ -1808,14 +1737,12 @@ function renderBattle(room) {
     // 고른 유닛이 쓰러졌으면 선택을 푼다.
     if (activeSlot !== null && !activeTile(battle)) {
       activeSlot = null;
-      actionMode = null;
       aimDir = null;
     }
     renderTurnSidebar(myPlacements);
     shareSelection(activeTile(battle)); // 상대 화면에 "이 유닛을 움직이는 중"을 보여준다
   } else {
     activeSlot = null;
-    actionMode = null;
     aimDir = null;
     prevHp = null;
     renderSidebar(myPlacements);
