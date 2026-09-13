@@ -1,7 +1,6 @@
 import "./update-overlay.js";   // 업데이트 중에는 화면을 덮고, 끝나면 재실행 버튼을 띄운다
 import { firebaseConfig } from "./firebase-config.js";
 import { unitFrameClass } from "./unit-colors.js";
-import { DEV_TOOLS } from "./dev-flags.js";
 import { maxHp, attackOf, damageAt, costOf, reloadMs, MAX_ENERGY, ENERGY_PER_SEC } from "./unit-stats.js";
 import { playSelect } from "./sfx.js";
 import {
@@ -19,10 +18,34 @@ import {
 } from "https://www.gstatic.com/firebasejs/12.18.0/firebase-database.js";
 
 const AVATAR_PATH = "BS_Plr_Icons/";
-const ROWS = 7;
-const COLS = 7;
-const BOUNDARY_ROW = 3; // 세로 7칸 중 가운데 한 줄 = 배치 불가 경계선
-const PLACING_MS = 60000;
+const ROWS = 15;
+const COLS = 15;
+
+// 벽. 이동도 공격도 막는다. 판 좌표 기준 [행, 열]이며,
+// 양쪽이 같은 조건이 되도록 위아래·좌우 대칭으로 둔다 (위쪽 절반만 적고 아래는 뒤집어 만든다).
+const WALLS_TOP_HALF = [
+  [2, 2], [2, 3], [2, 11], [2, 12],   // 스폰 양옆의 짧은 벽
+  [3, 6], [3, 7], [3, 8],             // 스폰 바로 앞 엄폐물
+  [5, 0], [5, 1], [5, 13], [5, 14],   // 가장자리 벽
+  [5, 4], [6, 4], [5, 10], [6, 10],   // 안쪽 세로 벽
+  [7, 2], [7, 3], [7, 11], [7, 12],   // 가운데 줄 양쪽
+  [7, 7]                              // 한가운데 기둥
+];
+const WALLS = new Set();
+WALLS_TOP_HALF.forEach(([r, c]) => {
+  [[r, c], [ROWS - 1 - r, c]].forEach(([wr, wc]) => {
+    WALLS.add(`${wr}_${wc}`);
+    WALLS.add(`${wr}_${COLS - 1 - wc}`);
+  });
+});
+function isWall(key) {
+  return WALLS.has(key);
+}
+
+// 유닛이 나오는 칸. 방장은 맨 아래 줄, 손님은 맨 위 줄 가운데.
+// (손님 화면은 세로로 뒤집혀 있어서, 둘 다 자기 스폰이 화면 맨 아래에 보인다)
+const SPAWN = { host: `${ROWS - 1}_${Math.floor(COLS / 2)}`, guest: `0_${Math.floor(COLS / 2)}` };
+const RESPAWN_DELAY_MS = 1000;  // 유닛이 쓰러진 뒤 다음 유닛이 나오기까지
 const MAX_AMMO = 3;            // 유닛마다 가지는 탄창 수
 // 한 칸 움직인 뒤 이만큼은 다음 이동을 받지 않는다.
 // 연속으로 밀어 넣으면 서버에 반영되기 전 상태로 다음 이동을 계산하게 되어 어긋날 수 있다.
@@ -57,19 +80,12 @@ let leaving = false;
 let currentRoom = null;
 let mapBuilt = false;
 
-let myUnits = [null, null, null];
-let selectedSlot = null;
-let myDone = false;
-let doneRequested = false;
 const loadingStartedAt = Date.now();
 
-let timerInterval = null;
 let countdownInterval = null;
 let turnInterval = null;
-// 조작 중인 유닛은 칸이 아니라 번호(0,1,2)로 기억한다.
-// 칸으로 기억하면 한 칸 움직이는 순간 그 칸이 비어서 선택이 풀려버린다.
+// 지금 판에 나와 있는 내 유닛의 번호(0,1,2). 한 번에 한 마리만 나온다.
 let activeSlot = null;
-let sharedSelection = null; // 방 데이터에 적어둔 내 선택 (상대 화면에 표시하기 위함)
 let aimDir = null;         // 공격 조준 방향 (방향키로 정하고 스페이스로 쏜다)
 let attackFlash = null;    // 방금 쏜 사거리 (바로 지우지 않고 잠깐 남겨 사라지는 모습을 보여준다)
 let matchFinished = false; // 정상 종료로 대기실에 돌아가는 중인지 (상대 이탈과 구분)
@@ -80,13 +96,12 @@ const sidebarEl = document.getElementById("unit-slots");
 const sidebarBoxEl = document.getElementById("unit-sidebar");
 const countdownOverlay = document.getElementById("countdown-overlay");
 const countdownNumberEl = document.getElementById("countdown-number");
-const autoPlaceBtn = document.getElementById("auto-place");
 const enemySidebarEl = document.getElementById("enemy-sidebar");
 const enemySlotsEl = document.getElementById("enemy-slots");
 const myEnergyEl = document.getElementById("my-energy");
 const enemyEnergyEl = document.getElementById("enemy-energy");
 const mapEl = document.getElementById("battle-map");
-const timerEl = document.getElementById("placement-timer");
+const mapViewportEl = document.getElementById("map-viewport");
 const matchEndOverlay = document.getElementById("match-end-overlay");
 const matchEndTextEl = matchEndOverlay.querySelector(".match-end-text");
 const turnBarEl = document.getElementById("turn-bar");
@@ -220,19 +235,15 @@ function watchRoom() {
 function battleField() {
   return isHost ? "hostPlacements" : "guestPlacements";
 }
-function doneField() {
-  return isHost ? "hostDone" : "guestDone";
-}
-function myAreaRows() {
-  return isHost ? [4, 5, 6] : [0, 1, 2];
-}
 // 판 좌표의 행이 화면에서 몇 번째 줄인지 (게스트 화면은 세로로 뒤집혀 있다)
 function displayRow(r) {
   return isHost ? r : ROWS - 1 - r;
 }
 
-function isMyAreaRow(r) {
-  return isHost ? r > BOUNDARY_ROW : r < BOUNDARY_ROW;
+// 대기실에서 장착한 유닛 셋. 방 데이터에는 배열이나 번호를 키로 한 객체로 들어 있어 [0,1,2]로 맞춘다.
+function unitsOf(role) {
+  const raw = (currentRoom && currentRoom[`${role}Units`]) || {};
+  return [0, 1, 2].map((slot) => raw[slot] || null);
 }
 
 // ---------- 맵 생성 ----------
@@ -240,168 +251,124 @@ function buildMap() {
   mapEl.innerHTML = "";
   for (let r = 0; r < ROWS; r++) {
     for (let c = 0; c < COLS; c++) {
+      const key = `${r}_${c}`;
       const tile = document.createElement("div");
       tile.className = "tile";
       tile.dataset.row = r;
       tile.dataset.col = c;
 
-      if (r === BOUNDARY_ROW) {
-        tile.classList.add("boundary");
-      } else {
-        tile.classList.add(isMyAreaRow(r) ? "mine-area" : "enemy-area");
-      }
+      if (isWall(key)) tile.classList.add("wall");
+      if (key === SPAWN[myRole()]) tile.classList.add("spawn-mine");
+      if (key === SPAWN[isHost ? "guest" : "host"]) tile.classList.add("spawn-foe");
 
-      // 게스트는 자신의 영역이 항상 화면 아래쪽에 오도록 세로로만 뒤집어서 배치한다 (좌우는 그대로).
+      // 게스트는 자신의 스폰이 항상 화면 아래쪽에 오도록 세로로만 뒤집어서 배치한다 (좌우는 그대로).
       tile.style.gridRowStart = displayRow(r) + 1;
       tile.style.gridColumnStart = c + 1;
 
       mapEl.appendChild(tile);
     }
   }
-  mapEl.addEventListener("click", onTileClick);
-  mapEl.addEventListener("contextmenu", onTileRightClick);
 }
 
-function placedSlotSet(placements) {
-  const set = new Set();
-  Object.values(placements).forEach((p) => { if (p) set.add(p.slot); });
-  return set;
-}
+// ---------- 카메라 ----------
+// 판이 화면보다 커서 일부만 보인다. 칸 크기는 그대로 두고 판을 옮겨,
+// 내 유닛이 가운데 오게 한다 (판 끝에서는 더 밀지 않는다). 유닛이 나오기 전에는 내 스폰을 본다.
+let cameraPlaced = false;
+function updateCamera(battle) {
+  const vw = mapViewportEl.clientWidth;
+  const vh = mapViewportEl.clientHeight;
+  if (!vw || !vh) return; // 아직 화면에 안 보이는 중
 
-// ---------- 사이드바 (내 유닛 3개) ----------
-function renderSidebar(myPlacements) {
-  const placed = placedSlotSet(myPlacements);
-  sidebarEl.innerHTML = "";
+  const focusKey = activeTile(battle) || SPAWN[myRole()];
+  const { r, c } = parseTile(focusKey);
+  const tile = mapEl.querySelector(`.tile[data-row="${r}"][data-col="${c}"]`);
+  if (!tile) return;
 
-  for (let i = 0; i < 3; i++) {
-    const file = myUnits[i];
-    if (!file) continue; // 선택 안 한 슬롯은 배치 대상이 아님
+  const maxX = Math.max(0, mapEl.offsetWidth - vw);
+  const maxY = Math.max(0, mapEl.offsetHeight - vh);
+  const x = Math.max(0, Math.min(maxX, tile.offsetLeft + tile.offsetWidth / 2 - vw / 2));
+  const y = Math.max(0, Math.min(maxY, tile.offsetTop + tile.offsetHeight / 2 - vh / 2));
 
-    const isPlaced = placed.has(i);
-    const card = document.createElement("div");
-    card.className = "unit-slot-card"
-      + (isPlaced ? " placed" : "")
-      + (selectedSlot === i ? " selected" : "");
-    card.innerHTML = `
-      <span class="key-badge">${i + 1}</span>
-      <div class="unit-tile ${unitFrameClass(file)}">
-        <img src="${AVATAR_PATH}${file}" alt="">
-      </div>
-    `;
-
-    // 사이드바에서 유닛을 고르는 것만으로는 소리를 내지 않는다.
-    // 효과음은 실제로 타일에 배치했을 때만 난다 (onTileClick 참고).
-    if (!isPlaced && !myDone) {
-      card.addEventListener("click", () => selectUnitSlot(i));
-    }
-    sidebarEl.appendChild(card);
+  // 처음 자리 잡을 때는 미끄러지지 않고 바로 그 자리에서 시작한다.
+  mapEl.classList.toggle("camera-instant", !cameraPlaced);
+  mapEl.style.transform = `translate(${-x}px, ${-y}px)`;
+  if (!cameraPlaced) {
+    void mapEl.offsetWidth;
+    mapEl.classList.remove("camera-instant");
+    cameraPlaced = true;
   }
 }
-
-// 사이드바 클릭과 숫자 키가 같은 길을 쓰도록 한 곳에 모은다.
-function selectUnitSlot(slot) {
-  const battle = currentRoom && currentRoom.battle;
-  if (!battle) return;
-
-  // 진행 중에는 그 번호의 유닛이 서 있는 칸을 찾아서 고른다.
-  if (battle.phase === "playing") {
-    const mine = battle[battleField()] || {};
-    const key = Object.keys(mine).find((k) => mine[k] && mine[k].slot === slot);
-    if (key) selectUnitAt(key);
-    return;
-  }
-
-  if (battle.phase !== "placing" || myDone) return;
-  if (!myUnits[slot]) return;
-
-  const myPlacements = battle[battleField()] || {};
-  if (placedSlotSet(myPlacements).has(slot)) return; // 이미 놓은 유닛
-
-  selectedSlot = (selectedSlot === slot) ? null : slot;
-  renderSidebar(myPlacements);
-}
-
-// 1, 2, 3 키로 유닛을 고른다. 같은 키를 다시 누르면 선택이 풀린다.
-// (고른 뒤의 이동·조준·공격 키는 아래 전투 조작에서 받는다)
-window.addEventListener("keydown", (e) => {
-  if (e.repeat || e.ctrlKey || e.altKey || e.metaKey) return;
-
-  const slot = ["1", "2", "3"].indexOf(e.key);
-  if (slot !== -1) selectUnitSlot(slot);
+window.addEventListener("resize", () => {
+  cameraPlaced = false;
+  if (currentRoom && currentRoom.battle) updateCamera(currentRoom.battle);
 });
 
-// ---------- 자동 배치 (개발/테스트용) ----------
-// 켜두면 배치 단계가 시작되는 순간 내 유닛을 내 진영 빈칸에 무작위로 한 번에 놓는다.
-// 배치가 끝나면 평소처럼 자동으로 "배치 완료"까지 이어진다.
-const AUTO_PLACE_KEY = "bs_auto_place";
-let autoPlace = DEV_TOOLS && localStorage.getItem(AUTO_PLACE_KEY) === "1";
-let autoPlaceInFlight = false;
-
-// 공유용에서는 스위치 자체를 감춘다.
-if (!DEV_TOOLS) autoPlaceBtn.closest(".auto-place").classList.add("hidden");
-
-function renderAutoPlaceBtn() {
-  autoPlaceBtn.classList.toggle("on", autoPlace);
-  autoPlaceBtn.setAttribute("aria-pressed", String(autoPlace));
+// ---------- 스폰 ----------
+// 유닛은 대기실에서 장착한 순서(1번 칸부터)대로 한 마리씩 나온다.
+// 판에 내 유닛이 없고 아직 쓰러지지 않은 유닛이 남아 있으면, 그중 첫 번째를 내 스폰에 내보낸다.
+// 각자 자기 유닛만 내보낸다 (규칙상 남의 유닛 칸은 쓸 수 없다).
+function nextSlot(battle) {
+  const units = unitsOf(myRole());
+  return [0, 1, 2].find((slot) => units[slot] && hpOf(battle, myRole(), slot, units[slot]) > 0) ?? null;
 }
 
-autoPlaceBtn.addEventListener("click", () => {
-  if (!DEV_TOOLS) return;
-  if (autoPlaceInFlight) return; // 놓는 중에는 다시 받지 않는다
-  autoPlace = !autoPlace;
-  localStorage.setItem(AUTO_PLACE_KEY, autoPlace ? "1" : "0");
-  renderAutoPlaceBtn();
-  // 배치 단계 도중에 켰다면 기다리지 않고 바로 놓아준다.
-  if (autoPlace && currentRoom && currentRoom.battle) {
-    maybeAutoPlace(currentRoom.battle[battleField()] || {});
-  }
-});
-renderAutoPlaceBtn();
-
-function maybeAutoPlace(myPlacements) {
-  if (!DEV_TOOLS) return;
-  if (!autoPlace || autoPlaceInFlight || myDone || doneRequested) return;
-
-  const battle = currentRoom && currentRoom.battle;
-  if (!battle || battle.phase !== "placing") return;
-
-  const placed = placedSlotSet(myPlacements);
-  const slots = [0, 1, 2].filter((i) => myUnits[i] && !placed.has(i));
-  if (!slots.length) return;
-
-  // 내 진영에서 아직 비어 있는 칸을 모아 섞는다.
-  const free = [];
+// 스폰 칸에 누가 서 있으면 가장 가까운 빈칸에 내보낸다.
+function spawnTile(battle) {
+  const origin = parseTile(SPAWN[myRole()]);
+  let best = null;
   for (let r = 0; r < ROWS; r++) {
-    if (r === BOUNDARY_ROW || !isMyAreaRow(r)) continue;
     for (let c = 0; c < COLS; c++) {
-      if (!myPlacements[`${r}_${c}`]) free.push(`${r}_${c}`);
+      const key = tileKey(r, c);
+      if (isWall(key) || occupant(battle, key)) continue;
+      const d = Math.abs(r - origin.r) + Math.abs(c - origin.c);
+      if (!best || d < best.d) best = { key, d };
     }
   }
-  if (free.length < slots.length) return;
-  for (let i = free.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [free[i], free[j]] = [free[j], free[i]];
-  }
+  return best && best.key;
+}
 
-  const updates = {};
-  slots.forEach((slot, i) => { updates[free[i]] = { slot, file: myUnits[slot] }; });
+let spawnTimer = null;
+let spawnInFlight = false;
+function maybeSpawn(battle) {
+  if (battle.phase !== "countdown" && battle.phase !== "playing") return;
+  if (spawnTimer || spawnInFlight) return;
+  if (Object.keys(battle[battleField()] || {}).length > 0) return;
+  if (nextSlot(battle) === null) return;
 
-  autoPlaceInFlight = true;
-  selectedSlot = null;
-  playSelect();
-  update(ref(db, `rooms/${roomId}/battle/${battleField()}`), updates)
-    .catch((err) => console.error("자동 배치 실패:", err))
-    .finally(() => { autoPlaceInFlight = false; });
+  // 첫 유닛은 바로, 쓰러진 뒤의 다음 유닛은 잠깐 쉬었다가 나온다.
+  const units = unitsOf(myRole());
+  const anyDown = [0, 1, 2].some((slot) => units[slot] && hpOf(battle, myRole(), slot, units[slot]) <= 0);
+
+  spawnTimer = setTimeout(async () => {
+    spawnTimer = null;
+    const now = currentRoom && currentRoom.battle;
+    if (!now || (now.phase !== "countdown" && now.phase !== "playing")) return;
+    if (Object.keys(now[battleField()] || {}).length > 0) return;
+    const slot = nextSlot(now);
+    const key = spawnTile(now);
+    if (slot === null || !key) return;
+
+    spawnInFlight = true;
+    try {
+      await update(ref(db, `rooms/${roomId}/battle/${battleField()}`), {
+        [key]: { slot, file: unitsOf(myRole())[slot] }
+      });
+      playSelect();
+    } catch (err) {
+      console.error("유닛 등장 실패:", err);
+      writeFailNotice("유닛을 내보내", err);
+      await wait(2000);
+    } finally {
+      spawnInFlight = false;
+      if (currentRoom && currentRoom.battle) maybeSpawn(currentRoom.battle);
+    }
+  }, anyDown ? RESPAWN_DELAY_MS : 0);
 }
 
 // ---------- 맵 타일 렌더링 ----------
 function renderMapTiles(myPlacements, oppPlacements) {
   const battle = (currentRoom && currentRoom.battle) || {};
-  const playing = battle.phase === "playing";
-  mapEl.classList.toggle("playing", playing);
-
-  // 상대가 지금 고른 유닛 (상대 차례일 때만 보여준다)
-  const oppSelected = playing ? battle[isHost ? "guestSelected" : "hostSelected"] : null;
+  mapEl.classList.add("playing");
 
   const selected = activeTile(battle);
   const burning = burningTiles(battle);
@@ -438,14 +405,6 @@ function renderMapTiles(myPlacements, oppPlacements) {
       warn.className = "bounce-warn";
       warn.textContent = "!";
       tile.appendChild(warn);
-    }
-
-    // 상대가 움직이려는 유닛에는 네 방향 화살표를 그 칸 안에 모아 표시한다.
-    if (placement && !mine && key === oppSelected) {
-      const mark = document.createElement("div");
-      mark.className = "opp-active-mark";
-      mark.innerHTML = `<i class="a-up"></i><i class="a-down"></i><i class="a-left"></i><i class="a-right"></i>`;
-      tile.appendChild(mark);
     }
   });
 }
@@ -529,141 +488,7 @@ function renderAttackRange(battle) {
   if (tiles.length) mapEl.appendChild(rangeBox(from, tiles, true));
 }
 
-function onTileClick(e) {
-  const tile = e.target.closest(".tile");
-  if (!tile) return;
-
-  const battle = currentRoom && currentRoom.battle;
-  if (battle && battle.phase === "playing") {
-    selectUnitAt(`${tile.dataset.row}_${tile.dataset.col}`);
-    return;
-  }
-
-  if (myDone || selectedSlot === null) return;
-
-  const r = Number(tile.dataset.row);
-  const c = Number(tile.dataset.col);
-  if (r === BOUNDARY_ROW || !isMyAreaRow(r)) return;
-
-  const key = `${r}_${c}`;
-  const myPlacements = (currentRoom.battle && currentRoom.battle[battleField()]) || {};
-  if (myPlacements[key]) return; // 이미 배치된 타일
-
-  const file = myUnits[selectedSlot];
-  if (!file) return;
-
-  playSelect();
-  const slot = selectedSlot;
-  selectedSlot = null;
-  update(ref(db, `rooms/${roomId}/battle/${battleField()}`), { [key]: { slot, file } });
-}
-
-function onTileRightClick(e) {
-  e.preventDefault();
-  const battle = currentRoom && currentRoom.battle;
-  if (myDone || !battle || battle.phase !== "placing") return;
-
-  const tile = e.target.closest(".tile");
-  if (!tile) return;
-
-  const key = `${tile.dataset.row}_${tile.dataset.col}`;
-  const myPlacements = (currentRoom.battle && currentRoom.battle[battleField()]) || {};
-  if (!myPlacements[key]) return;
-
-  update(ref(db, `rooms/${roomId}/battle/${battleField()}`), { [key]: null });
-}
-
-// ---------- 배치 타이머 ----------
-function renderTimer(battle) {
-  clearInterval(timerInterval);
-
-  if (battle.phase !== "placing" || !battle.placingStartedAt) {
-    timerEl.classList.add("hidden");
-    return;
-  }
-  timerEl.classList.remove("hidden");
-
-  // 서버 시각을 아직 모르면 남은 시간을 계산할 수 없다. 보정 전에 계산하면 PC 시계 오차만큼
-  // 엉뚱한 값이 나오므로(시계가 빠른 PC에서는 즉시 0), 알게 될 때까지 전체 시간을 보여준다.
-  if (!serverTimeReady()) {
-    timerEl.textContent = `배치 시간: 0:${String(PLACING_MS / 1000).padStart(2, "0")}`;
-    whenServerTime(() => {
-      if (currentRoom && currentRoom.battle) renderTimer(currentRoom.battle);
-    });
-    return;
-  }
-
-  const tick = () => {
-    const remain = Math.max(0, PLACING_MS - (serverNow() - battle.placingStartedAt));
-    const sec = Math.ceil(remain / 1000);
-
-    timerEl.textContent = myDone
-      ? "배치 완료! 상대 대기 중..."
-      : `배치 시간: 0:${String(sec).padStart(2, "0")}`;
-
-    if (remain <= 0 && !myDone) {
-      clearInterval(timerInterval);
-      finalizePlacement();
-    }
-  };
-  tick();
-  timerInterval = setInterval(tick, 250);
-}
-
-// 시간 안에 다 못 배치한 슬롯을 내 영역의 빈 타일에 무작위로 채운다.
-async function finalizePlacement() {
-  if (myDone || doneRequested) return;
-
-  const battle = currentRoom.battle || {};
-  const myPlacements = battle[battleField()] || {};
-  const placed = placedSlotSet(myPlacements);
-  const remainingSlots = [0, 1, 2].filter((i) => myUnits[i] && !placed.has(i));
-
-  if (remainingSlots.length > 0) {
-    const occupiedKeys = new Set(Object.keys(myPlacements));
-    const emptyTiles = [];
-    myAreaRows().forEach((r) => {
-      for (let c = 0; c < COLS; c++) {
-        const key = `${r}_${c}`;
-        if (!occupiedKeys.has(key)) emptyTiles.push(key);
-      }
-    });
-    shuffle(emptyTiles);
-
-    const updates = {};
-    remainingSlots.forEach((slot, idx) => {
-      const key = emptyTiles[idx];
-      if (key) updates[key] = { slot, file: myUnits[slot] };
-    });
-    if (Object.keys(updates).length > 0) {
-      await update(ref(db, `rooms/${roomId}/battle/${battleField()}`), updates);
-    }
-  }
-
-  await markDone();
-}
-
-function shuffle(arr) {
-  for (let i = arr.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [arr[i], arr[j]] = [arr[j], arr[i]];
-  }
-}
-
-async function markDone() {
-  doneRequested = true;
-  await update(ref(db, `rooms/${roomId}/battle`), { [doneField()]: true });
-}
-
-function maybeAutoComplete(myPlacements) {
-  if (myDone || doneRequested) return;
-  const placed = placedSlotSet(myPlacements);
-  const requiredSlots = [0, 1, 2].filter((i) => myUnits[i]);
-  const allPlaced = requiredSlots.length > 0 && requiredSlots.every((i) => placed.has(i));
-  if (allPlaced) markDone();
-}
-
-// ---------- 카운트다운 (3,2,1,0에서 멈춤 - 이후 게임 로직은 아직 없음) ----------
+// ---------- 카운트다운 ----------
 function renderCountdown(battle) {
   clearInterval(countdownInterval);
 
@@ -743,12 +568,12 @@ async function startPlaying() {
   if (playStartRequested) return;
   playStartRequested = true;
   try {
-    // 캐릭터마다 기본 체력이 다르므로, 실제로 배치된 유닛을 보고 채운다.
-    const battle = (currentRoom && currentRoom.battle) || {};
-    const fullHp = (placements) => {
+    // 캐릭터마다 기본 체력이 다르므로, 대기실에서 장착한 유닛 셋을 보고 채운다.
+    // (아직 나오지 않은 유닛도 체력을 적어둬야 "쓰러짐"과 "대기 중"을 구분할 수 있다)
+    const fullHp = (role) => {
       const table = {};
-      Object.values(placements || {}).forEach((u) => {
-        if (u) table[u.slot ?? 0] = maxHp(u.file);
+      unitsOf(role).forEach((file, slot) => {
+        if (file) table[slot] = maxHp(file);
       });
       return table;
     };
@@ -763,8 +588,8 @@ async function startPlaying() {
       phase: "playing",
       startedAt: serverTimestamp(),
       actedAt: serverTimestamp(),
-      hostHp: fullHp(battle.hostPlacements),
-      guestHp: fullHp(battle.guestPlacements),
+      hostHp: fullHp("host"),
+      guestHp: fullHp("guest"),
       hostAmmo: fullAmmo(),
       guestAmmo: fullAmmo(),
       hostEnergy: fullEnergy(),
@@ -776,11 +601,11 @@ async function startPlaying() {
   }
 }
 
-// 지금 조작 중인 유닛이 서 있는 칸. 움직이면 이 값만 따라 바뀐다.
+// 지금 판에 나와 있는 내 유닛이 서 있는 칸. 한 번에 한 마리뿐이다.
 function activeTile(battle) {
-  if (activeSlot === null || !battle) return null;
+  if (!battle) return null;
   const mine = battle[battleField()] || {};
-  return Object.keys(mine).find((k) => mine[k] && mine[k].slot === activeSlot) || null;
+  return Object.keys(mine).find((k) => mine[k]) || null;
 }
 
 function tileKey(r, c) { return `${r}_${c}`; }
@@ -814,8 +639,7 @@ function screenDirection(key) {
   return isHost ? dir : [-dir[0], dir[1]];
 }
 
-// 그 방향으로 한 칸 갈 수 있는지 본다. 판 밖이거나 누가 서 있으면 못 간다.
-// 가운데 경계선은 배치 때만 막히고, 이동할 때는 넘어갈 수 있다.
+// 그 방향으로 한 칸 갈 수 있는지 본다. 판 밖이거나 벽이거나 누가 서 있으면 못 간다.
 function stepTarget(battle, fromKey, dir) {
   const [dr, dc] = dir;
   const { r, c } = parseTile(fromKey);
@@ -823,7 +647,7 @@ function stepTarget(battle, fromKey, dir) {
   const nc = c + dc;
   if (nr < 0 || nr >= ROWS || nc < 0 || nc >= COLS) return null;
   const key = tileKey(nr, nc);
-  if (occupant(battle, key)) return null;
+  if (isWall(key) || occupant(battle, key)) return null;
   return key;
 }
 
@@ -861,7 +685,7 @@ async function moveUnit(fromKey, dir) {
 
   const toKey = stepTarget(battle, fromKey, dir);
   if (!toKey) {
-    // 판 밖이거나 그 방향에 누가 서 있다 (내 유닛이든 상대 유닛이든 막힌다)
+    // 판 밖이거나 벽이거나 그 방향에 누가 서 있다
     pushNotice("실패: 해당 방향으로\n이동할 수 없습니다.", { group: "move", duration: 1800 });
     return;
   }
@@ -876,8 +700,7 @@ async function moveUnit(fromKey, dir) {
     ...spendEnergy(battle, costOf(unit.file, "move"))
   };
 
-  // 선택은 번호로 잡고 있으므로, 칸이 바뀌어도 같은 유닛을 계속 조작한다.
-  // 조준 방향도 그대로 두어, 움직인 자리에서 바로 스페이스로 쏠 수 있다.
+  // 조준 방향은 그대로 두어, 움직인 자리에서 바로 스페이스로 쏠 수 있다.
   moveInFlight = true;
   playSelect();
   try {
@@ -892,12 +715,18 @@ async function moveUnit(fromKey, dir) {
   }
 }
 
-// 한쪽 유닛이 모두 쓰러지면 매치가 끝난다. 먼저 알아챈 쪽이 적어둔다.
+// 한쪽 유닛 셋이 모두 쓰러지면 매치가 끝난다. 먼저 알아챈 쪽이 적어둔다.
+// 유닛이 쓰러지고 다음 유닛이 나오기 전에는 판이 잠깐 비므로, 판이 아니라 체력으로 센다.
+function aliveCount(battle, role) {
+  const units = unitsOf(role);
+  return [0, 1, 2].filter((slot) => units[slot] && hpOf(battle, role, slot, units[slot]) > 0).length;
+}
+
 let wipeEndRequested = false;
 function checkWipe(battle) {
   if (wipeEndRequested || !battle || battle.phase !== "playing" || !battle.startedAt) return;
-  const hostLeft = Object.keys(battle.hostPlacements || {}).length;
-  const guestLeft = Object.keys(battle.guestPlacements || {}).length;
+  const hostLeft = aliveCount(battle, "host");
+  const guestLeft = aliveCount(battle, "guest");
   if (hostLeft > 0 && guestLeft > 0) return;
 
   wipeEndRequested = true;
@@ -929,44 +758,10 @@ async function endByIdle() {
   }
 }
 
-// 내가 어떤 유닛을 움직이려는지 상대도 볼 수 있도록 방 데이터에 적어둔다.
-// 값이 바뀔 때만 쓴다 (화면을 다시 그릴 때마다 쓰면 쓸데없이 오간다).
-function shareSelection(key) {
-  const next = key || null;
-  if (sharedSelection === next) return;
-  sharedSelection = next;
-  update(ref(db, `rooms/${roomId}/battle`), { [`${myRole()}Selected`]: next })
-    .catch((err) => console.error("선택 표시 실패:", err));
-}
-
-// 조작할 유닛을 고른다. 고른 뒤에는 WASD로 이동, 화살표로 조준, 스페이스로 공격한다.
-// 빠르게 여러 번 누르면 선택이 켜졌다 꺼졌다 하며 방 데이터에 쓰기가 몰린다.
-// 아주 짧은 간격의 반복은 무시한다.
-const SELECT_GAP_MS = 160;
-let lastSelectAt = 0;
-
-function selectUnitAt(key) {
-  const battle = currentRoom && currentRoom.battle;
-  if (!battle || battle.phase !== "playing") return;
-  if (moveInFlight || attackInFlight) return;
-
-  const now = Date.now();
-  if (now - lastSelectAt < SELECT_GAP_MS) return;
-  lastSelectAt = now;
-  const mine = battle[battleField()] || {};
-  if (!mine[key]) return;
-
-  const slot = mine[key].slot ?? 0;
-  // 같은 유닛을 다시 누르면 해제, 다른 유닛을 고르면 조준은 처음부터 다시.
-  activeSlot = (activeSlot === slot) ? null : slot;
-  aimDir = null;
-  renderBattle(currentRoom);
-}
-
 // WASD는 화면 기준 네 방향 이동. 한글 입력 상태에서도 같은 자리의 키가 먹도록 e.code로 본다.
 const MOVE_KEYS = { KeyW: "ArrowUp", KeyA: "ArrowLeft", KeyS: "ArrowDown", KeyD: "ArrowRight" };
 
-// 전투 조작: 유닛을 고른 뒤 WASD 이동, 화살표 조준, 스페이스 공격.
+// 전투 조작: 판에 나와 있는 내 유닛을 WASD 이동, 화살표 조준, 스페이스 공격.
 window.addEventListener("keydown", (e) => {
   if (e.ctrlKey || e.altKey || e.metaKey) return;
 
@@ -983,7 +778,7 @@ window.addEventListener("keydown", (e) => {
 
   const from = activeTile(battle);
   if (!from) {
-    pushNotice("조작할 유닛을 먼저 고르세요.", { group: "turn", duration: 1600 });
+    pushNotice("다음 유닛이 나오는 중입니다.", { group: "turn", duration: 1200 });
     return;
   }
 
@@ -1094,22 +889,22 @@ function spendAmmo(battle, slot, file) {
 }
 
 // 남은 탄창을 점으로 보여준다. 차오르는 중인 한 발은 조금씩 채워진다.
-function ammoRowHtml(role, slot) {
+function ammoRowHtml(role, slot, file) {
   let pips = "";
   for (let i = 0; i < MAX_AMMO; i++) pips += `<i><b></b></i>`;
-  return `<div class="ammo-row" data-role="${role}" data-slot="${slot}">${pips}</div>`;
+  return `<div class="ammo-row" data-role="${role}" data-slot="${slot}" data-file="${file}">${pips}</div>`;
 }
 
 // 탄창 점을 지금 값에 맞춰 칠한다 (카드를 다시 만들지 않는다).
+// 대기 중인 유닛도 탄창을 보여준다 (나오면 그 상태로 시작한다).
 function paintAmmo(battle) {
   document.querySelectorAll(".ammo-row").forEach((row) => {
     const role = row.dataset.role;
     const slot = Number(row.dataset.slot);
-    const placements = battle[role === "host" ? "hostPlacements" : "guestPlacements"] || {};
-    const unit = Object.values(placements).find((u) => u && (u.slot ?? 0) === slot);
-    if (!unit) return;
+    const file = row.dataset.file;
+    if (!file) return;
 
-    const { ammo, progress } = ammoState(battle, role, slot, unit.file);
+    const { ammo, progress } = ammoState(battle, role, slot, file);
     row.querySelectorAll("i").forEach((pip, i) => {
       const loaded = i < ammo;
       pip.classList.toggle("loaded", loaded);
@@ -1189,30 +984,42 @@ function spawnDamagePop(key, damage, mine) {
 }
 
 // ---------- 진행 중 화면 ----------
-function renderTurnSidebar(myPlacements) {
+// 유닛 셋을 나오는 순서대로 보여준다. 판에 나와 있는 유닛은 강조, 쓰러진 유닛은 흐리게.
+function rosterCard(battle, role, slot, file, withAmmo) {
+  const out = activeSlotOf(battle, role) === slot;
+  const hp = hpOf(battle, role, slot, file);
+  const card = document.createElement("div");
+  card.className = "unit-slot-card with-hp"
+    + (out ? " selected" : "")
+    + (hp <= 0 ? " down" : "");
+  card.innerHTML = `
+    <span class="key-badge">${slot + 1}</span>
+    ${hpBarHtml(hp, file, prevHp && prevHp[role][slot])}
+    <div class="unit-tile ${unitFrameClass(file)}">
+      <img src="${AVATAR_PATH}${file}" alt="">
+    </div>
+    ${withAmmo ? ammoRowHtml(role, slot, file) : ""}
+  `;
+  return card;
+}
+
+function activeSlotOf(battle, role) {
+  const placements = battle[`${role}Placements`] || {};
+  const unit = Object.values(placements).find(Boolean);
+  return unit ? (unit.slot ?? 0) : null;
+}
+
+function renderTurnSidebar() {
   const battle = currentRoom.battle;
   sidebarEl.innerHTML = "";
 
-  Object.entries(myPlacements)
-    .sort((a, b) => (a[1].slot || 0) - (b[1].slot || 0))
-    .forEach(([key, unit]) => {
-      const card = document.createElement("div");
-      card.className = "unit-slot-card with-hp" + (unit.slot === activeSlot ? " selected" : "");
-      card.innerHTML = `
-        <span class="key-badge">${(unit.slot ?? 0) + 1}</span>
-        ${hpBarHtml(hpOf(battle, myRole(), unit.slot ?? 0, unit.file), unit.file, prevHp && prevHp[myRole()][unit.slot ?? 0])}
-        <div class="unit-tile ${unitFrameClass(unit.file)}">
-          <img src="${AVATAR_PATH}${unit.file}" alt="">
-        </div>
-        ${ammoRowHtml(myRole(), unit.slot ?? 0)}
-      `;
-      card.addEventListener("click", () => selectUnitAt(key));
-      sidebarEl.appendChild(card);
-    });
+  unitsOf(myRole()).forEach((file, slot) => {
+    if (file) sidebarEl.appendChild(rosterCard(battle, myRole(), slot, file, true));
+  });
 
   animateHpBars(sidebarEl);
 
-  const canAct = activeSlot !== null;
+  const canAct = activeSlot !== null && battle.phase === "playing";
   turnActionsEl.classList.toggle("hidden", !canAct);
   actAttackBtn.classList.toggle("on", !!aimDir);
 
@@ -1272,27 +1079,14 @@ function tickEnergy() {
 }
 
 // 오른쪽 사이드바: 상대 유닛의 상태만 보여준다 (고를 수 없고 단축키도 없다).
-function renderEnemySidebar(battle, oppPlacements) {
-  const playing = battle.phase === "playing";
-  enemySidebarEl.classList.toggle("hidden", !playing);
-  if (!playing) return;
-
+// 상대도 유닛 셋을 나오는 순서대로 보여준다 (탄창은 감춘다).
+function renderEnemySidebar(battle) {
   const oppRole = isHost ? "guest" : "host";
   enemySlotsEl.innerHTML = "";
 
-  Object.values(oppPlacements)
-    .sort((a, b) => (a.slot || 0) - (b.slot || 0))
-    .forEach((unit) => {
-      const card = document.createElement("div");
-      card.className = "unit-slot-card";
-      card.innerHTML = `
-        ${hpBarHtml(hpOf(battle, oppRole, unit.slot ?? 0, unit.file), unit.file, prevHp && prevHp[oppRole][unit.slot ?? 0])}
-        <div class="unit-tile ${unitFrameClass(unit.file)}">
-          <img src="${AVATAR_PATH}${unit.file}" alt="">
-        </div>
-      `;
-      enemySlotsEl.appendChild(card);
-    });
+  unitsOf(oppRole).forEach((file, slot) => {
+    if (file) enemySlotsEl.appendChild(rosterCard(battle, oppRole, slot, file, false));
+  });
 
   animateHpBars(enemySlotsEl);
 }
@@ -1323,6 +1117,7 @@ function renderTurnBar(battle) {
 
 // ---------- 공격 ----------
 // 조준한 방향으로 사거리만큼의 칸 (판 밖은 빼고, 자기 칸은 포함하지 않는다).
+// 벽에 닿으면 거기서 끊긴다 (벽 너머는 맞지 않는다).
 function attackTiles(fromKey, dirKey, file) {
   const spec = attackOf(file);
   const dir = screenDirection(dirKey);
@@ -1334,6 +1129,7 @@ function attackTiles(fromKey, dirKey, file) {
     const nr = r + dir[0] * d;
     const nc = c + dir[1] * d;
     if (nr < 0 || nr >= ROWS || nc < 0 || nc >= COLS) break;
+    if (isWall(tileKey(nr, nc))) break;
     tiles.push({ key: tileKey(nr, nc), distance: d });
   }
   return tiles;
@@ -1568,7 +1364,6 @@ function handleFinish(battle) {
   finishSequenceStarted = true;
   matchFinished = true;
 
-  clearInterval(timerInterval);
   clearInterval(countdownInterval);
   clearInterval(turnInterval);
   countdownOverlay.classList.add("hidden");
@@ -1657,11 +1452,18 @@ function renderPhaseVisibility(battle) {
     }, LOADING_MIN_MS - elapsed);
     return;
   }
+  const wasHidden = battleMain.classList.contains("hidden");
   loadingOverlay.classList.add("hidden");
   battleMain.classList.remove("hidden");
+  // 가려져 있는 동안에는 판 크기를 잴 수 없어 카메라를 못 맞췄으므로, 드러난 순간 맞춘다.
+  if (wasHidden) {
+    cameraPlaced = false;
+    updateCamera(battle);
+  }
 }
 
-// 호스트가 대표로 단계를 진행시킨다 (로딩 -> 배치, 둘 다 배치 완료 -> 카운트다운).
+// 호스트가 대표로 단계를 진행시킨다 (로딩 -> 카운트다운). 배치 단계는 없다.
+// 카운트다운 동안 양쪽이 각자 첫 유닛을 스폰에 내보낸다.
 let loadingAdvanceTimer = null;
 async function maybeAdvancePhase(room) {
   const battle = room.battle;
@@ -1679,8 +1481,8 @@ async function maybeAdvancePhase(room) {
     const elapsed = serverNow() - (battle.createdAt || serverNow());
     if (elapsed >= LOADING_MIN_MS) {
       await update(ref(db, `rooms/${roomId}/battle`), {
-        phase: "placing",
-        placingStartedAt: serverTimestamp()
+        phase: "countdown",
+        countdownStartedAt: serverTimestamp()
       });
     } else if (!loadingAdvanceTimer) {
       // 이 확인은 방 데이터가 바뀔 때(onValue)만 실행되는데, 로딩이 끝나기를 기다리는 동안에는
@@ -1690,11 +1492,6 @@ async function maybeAdvancePhase(room) {
         if (currentRoom) maybeAdvancePhase(currentRoom);
       }, LOADING_MIN_MS - elapsed);
     }
-  } else if (battle.phase === "placing" && battle.hostDone && battle.guestDone && !battle.countdownStartedAt) {
-    await update(ref(db, `rooms/${roomId}/battle`), {
-      phase: "countdown",
-      countdownStartedAt: serverTimestamp()
-    });
   }
 }
 
@@ -1714,8 +1511,6 @@ function playOpponentPlacementSfx(oppPlacements) {
 
 function renderBattle(room) {
   const battle = room.battle;
-  myUnits = (isHost ? room.hostUnits : room.guestUnits) || [null, null, null];
-  myDone = !!(isHost ? battle.hostDone : battle.guestDone);
 
   if (battle.phase === "finished") {
     handleFinish(battle);
@@ -1729,35 +1524,28 @@ function renderBattle(room) {
 
   playOpponentPlacementSfx(oppPlacements);
 
-  sidebarBoxEl.classList.toggle("playing", battle.phase === "playing");
+  const inMatch = battle.phase === "countdown" || battle.phase === "playing";
+  sidebarBoxEl.classList.toggle("playing", inMatch);
+  enemySidebarEl.classList.toggle("hidden", !inMatch);
   myEnergyEl.classList.toggle("hidden", battle.phase !== "playing");
   enemyEnergyEl.classList.toggle("hidden", battle.phase !== "playing");
 
-  if (battle.phase === "playing") {
-    // 고른 유닛이 쓰러졌으면 선택을 푼다.
-    if (activeSlot !== null && !activeTile(battle)) {
-      activeSlot = null;
-      aimDir = null;
-    }
-    renderTurnSidebar(myPlacements);
-    shareSelection(activeTile(battle)); // 상대 화면에 "이 유닛을 움직이는 중"을 보여준다
-  } else {
-    activeSlot = null;
-    aimDir = null;
-    prevHp = null;
-    renderSidebar(myPlacements);
-  }
+  // 판에 나와 있는 내 유닛이 바뀌면(쓰러지고 다음 유닛이 나옴) 조준은 처음부터 다시.
+  const outSlot = activeSlotOf(battle, myRole());
+  if (outSlot !== activeSlot) aimDir = null;
+  activeSlot = outSlot;
+  if (!inMatch) prevHp = null;
 
-  renderEnemySidebar(battle, oppPlacements);
+  renderTurnSidebar();
+  renderEnemySidebar(battle);
   renderMapTiles(myPlacements, oppPlacements);
   if (battle.phase === "playing") showDamage(battle);
   renderMoveHints(battle);
   renderAttackRange(battle);
-  renderTimer(battle);
   renderCountdown(battle);
   renderTurnBar(battle);
-  maybeAutoPlace(myPlacements);
-  maybeAutoComplete(myPlacements);
+  updateCamera(battle);
+  maybeSpawn(battle);
   if (battle.phase === "playing") checkWipe(battle);
 }
 

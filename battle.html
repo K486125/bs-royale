@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0, user-scalable=no">
-<title>BS Battle - 유닛 배치</title>
+<title>BS Battle</title>
 <link rel="stylesheet" href="css/style.css">
 </head>
 <body class="battle-page">
@@ -23,7 +23,6 @@
   <aside id="unit-sidebar" class="unit-sidebar">
     <div id="unit-slots" class="unit-slots"></div>
 
-    <!-- 개발/테스트용: 켜두면 배치 단계에서 유닛 3개가 알아서 무작위로 놓인다 -->
     <!-- 에너지: 세 유닛이 함께 쓰는 하나뿐인 값 -->
     <div id="my-energy" class="energy-ring hidden">
       <svg viewBox="0 0 100 100" aria-hidden="true">
@@ -31,13 +30,6 @@
         <circle class="ring-fill" cx="50" cy="50" r="41"></circle>
       </svg>
       <span class="ring-value">100</span>
-    </div>
-
-    <div class="auto-place">
-      <span class="auto-place-label">자동 배치</span>
-      <button id="auto-place" class="auto-toggle" type="button" aria-pressed="false" aria-label="자동 배치">
-        <span class="knob"></span>
-      </button>
     </div>
   </aside>
 
@@ -54,9 +46,11 @@
   </aside>
 
   <div class="battle-center">
-    <div id="placement-timer" class="placement-timer hidden">배치 시간: 1:00</div>
     <div id="turn-bar" class="turn-bar hidden">00:00</div>
-    <div id="battle-map" class="battle-map"></div>
+    <!-- 판(15x15)이 화면보다 커서, 보이는 창 안에서 판을 옮겨 내 유닛을 따라간다 -->
+    <div id="map-viewport" class="map-viewport">
+      <div id="battle-map" class="battle-map"></div>
+    </div>
 
     <!-- 고른 유닛으로 무엇을 할지. 판 바로 아래 가운데 (재장전은 시간이 알아서 한다) -->
     <div id="turn-actions" class="turn-actions hidden">

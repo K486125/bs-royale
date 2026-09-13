@@ -861,12 +861,14 @@ body.battle-page {
      단계가 바뀔 때 맵이 커졌다 작아지지 않도록 배치 단계에서도 같은 값을 쓴다.
      가로도 같은 방식으로 사이드바를 피한다. */
   --tile-max: 64px;
+  --side-space: 372px;
   --tile-size: min(var(--tile-max), calc((100vh - 242px) / 7), calc((100vw - 372px) / 7));
   --unit-card: 112px;
 }
 @media (min-width: 1300px) {
   body.battle-page {
     --tile-max: 84px;
+    --side-space: 508px;
     --tile-size: min(var(--tile-max), calc((100vh - 258px) / 7), calc((100vw - 508px) / 7));
     --unit-card: 168px;
   }
@@ -1270,17 +1272,37 @@ body.battle-page {
   .placement-timer { font-size: 22px; padding: 14px 28px; }
 }
 
-.battle-map {
-  display: grid;
-  grid-template-columns: repeat(7, var(--tile-size));
-  grid-template-rows: repeat(7, var(--tile-size));
-  gap: 3px;
+/* 보이는 창. 칸 크기는 예전 7x7 판과 같게 두고, 세로로는 7칸만큼 보인다.
+   가로는 사이드바 사이에 들어가는 만큼(최대 판 전체)만 보인다.
+   판이 이 창보다 크므로 나머지는 잘리고, 카메라가 판을 옮겨 내 유닛을 따라간다. */
+.map-viewport {
+  --map-cells: 15;
+  position: relative;
+  box-sizing: content-box;
+  width: min(
+    calc(var(--map-cells) * var(--tile-size) + (var(--map-cells) - 1) * 3px + 20px),
+    calc(100vw - var(--side-space))
+  );
+  height: calc(7 * var(--tile-size) + 6 * 3px + 20px);
+  overflow: hidden;
   background: #10152c;
-  padding: 10px;
   border: 3px solid #3a4480;
   border-radius: 8px;
   box-shadow: 0 4px 0 #0a0d1e, 0 6px 14px rgba(0,0,0,.4);
 }
+.battle-map {
+  position: absolute;
+  left: 0;
+  top: 0;
+  display: grid;
+  grid-template-columns: repeat(15, var(--tile-size));
+  grid-template-rows: repeat(15, var(--tile-size));
+  gap: 3px;
+  padding: 10px;
+  transition: transform .22s ease-out;
+  will-change: transform;
+}
+.battle-map.camera-instant { transition: none; }
 .tile {
   position: relative;
   width: var(--tile-size);
@@ -1359,6 +1381,30 @@ body.battle-page {
 
 .battle-map.playing .tile.mine-unit { border: 3px solid #57a8ff; }
 .battle-map.playing .tile.enemy-unit { border: 3px solid #ff5a5a; }
+
+/* 벽: 이동도 공격도 막는 돌 블록 */
+.battle-map.playing .tile.wall {
+  background:
+    linear-gradient(180deg, rgba(255,255,255,.10), rgba(0,0,0,.18)),
+    repeating-linear-gradient(0deg, #6b6f7a 0 calc(var(--tile-size) / 2 - 2px), #4c505a calc(var(--tile-size) / 2 - 2px) calc(var(--tile-size) / 2));
+  border: 1px solid #3b3e46;
+  box-shadow: inset 0 -4px 0 rgba(0,0,0,.35), inset 0 3px 0 rgba(255,255,255,.12);
+}
+
+/* 스폰 칸: 유닛이 나오는 자리. 내 것은 파랑, 상대 것은 빨강 고리 */
+.tile.spawn-mine::before,
+.tile.spawn-foe::before {
+  content: "";
+  position: absolute;
+  inset: 14%;
+  border-radius: 50%;
+  border: 3px dashed rgba(87, 168, 255, .75);
+  pointer-events: none;
+}
+.tile.spawn-foe::before { border-color: rgba(255, 90, 90, .75); }
+
+/* 쓰러진 유닛 */
+.unit-slot-card.down { opacity: .35; filter: grayscale(1); }
 
 /* 피해 숫자. 판에 놓인 유닛 바로 위에서 떠올랐다 사라진다.
    내가 넣은 피해는 흰색, 내가 받은 피해는 빨간색. 글자 모양은 알림과 같다. */

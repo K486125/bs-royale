@@ -117,8 +117,8 @@
             }
           },
 
-          "hostSelected": { ".validate": "newData.isString() && newData.val().matches(/^[0-6]_[0-6]$/) && root.child('rooms').child($roomId).child('hostUid').val() === auth.uid" },
-          "guestSelected": { ".validate": "newData.isString() && newData.val().matches(/^[0-6]_[0-6]$/) && root.child('rooms').child($roomId).child('guestUid').val() === auth.uid" },
+          "hostSelected": { ".validate": "newData.isString() && newData.val().matches(/^([0-9]|1[0-4])_([0-9]|1[0-4])$/) && root.child('rooms').child($roomId).child('hostUid').val() === auth.uid" },
+          "guestSelected": { ".validate": "newData.isString() && newData.val().matches(/^([0-9]|1[0-4])_([0-9]|1[0-4])$/) && root.child('rooms').child($roomId).child('guestUid').val() === auth.uid" },
 
           "hostEnergy": {
             ".validate": "newData.hasChildren(['v', 'at'])",
@@ -137,7 +137,7 @@
 
           "burns": {
             "$tile": {
-              ".validate": "$tile.matches(/^[0-6]_[0-6]$/) && newData.hasChildren(['at', 'by'])",
+              ".validate": "$tile.matches(/^([0-9]|1[0-4])_([0-9]|1[0-4])$/) && newData.hasChildren(['at', 'by'])",
               "at": { ".validate": "newData.isNumber()" },
               "by": { ".validate": "newData.isString() && newData.val().matches(/^(host|guest)$/)" },
               "$other": { ".validate": false }
@@ -146,7 +146,7 @@
 
           "bounceMark": {
             ".validate": "newData.hasChildren(['key', 'at'])",
-            "key": { ".validate": "newData.isString() && newData.val().matches(/^[0-6]_[0-6]$/)" },
+            "key": { ".validate": "newData.isString() && newData.val().matches(/^([0-9]|1[0-4])_([0-9]|1[0-4])$/)" },
             "at": { ".validate": "newData.isNumber()" },
             "$other": { ".validate": false }
           },
@@ -156,7 +156,7 @@
 
           "hostPlacements": {
             "$tile": {
-              ".validate": "root.child('rooms').child($roomId).child('hostUid').val() === auth.uid && $tile.matches(/^[0-6]_[0-6]$/) && (root.child('rooms').child($roomId).child('battle').child('phase').val() !== 'placing' || $tile.matches(/^[4-6]_[0-6]$/))",
+              ".validate": "root.child('rooms').child($roomId).child('hostUid').val() === auth.uid && $tile.matches(/^([0-9]|1[0-4])_([0-9]|1[0-4])$/)",
               "slot": { ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 2" },
               "file": { ".validate": "newData.isString() && newData.val().matches(/^[A-Za-z]+_[0-9]{3}_Icon[.]png$/)" },
               "$other": { ".validate": false }
@@ -164,7 +164,7 @@
           },
           "guestPlacements": {
             "$tile": {
-              ".validate": "root.child('rooms').child($roomId).child('guestUid').val() === auth.uid && $tile.matches(/^[0-6]_[0-6]$/) && (root.child('rooms').child($roomId).child('battle').child('phase').val() !== 'placing' || $tile.matches(/^[0-2]_[0-6]$/))",
+              ".validate": "root.child('rooms').child($roomId).child('guestUid').val() === auth.uid && $tile.matches(/^([0-9]|1[0-4])_([0-9]|1[0-4])$/)",
               "slot": { ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 2" },
               "file": { ".validate": "newData.isString() && newData.val().matches(/^[A-Za-z]+_[0-9]{3}_Icon[.]png$/)" },
               "$other": { ".validate": false }
