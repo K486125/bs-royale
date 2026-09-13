@@ -58,7 +58,6 @@ const TURN_IDLE_MS = 20000;    // 이 시간 동안 아무 것도 안 하면 매
 // 개발 중에는 방치 감지를 꺼둔다. 상대가 이동을 마칠 때까지 그냥 기다린다.
 // 다시 켜려면 이 값만 true로 바꾸면 된다.
 const IDLE_TIMEOUT_ENABLED = false;
-const ATTACK_FLASH_MS = 520;   // 공격한 뒤 사거리를 잠깐 남겨두는 시간
 const PLAY_INTRO_MS = 900;     // 카운트다운 뒤 전투 화면으로 넘어가기 전 짧은 로딩
 const LOADING_MIN_MS = 1400; // 로딩 화면 최소 노출 시간 (버벅거림 방지용 체감 대기)
 const MATCH_END_MS = 1800; // "매치 종료" 문구를 보여주는 시간
@@ -87,7 +86,6 @@ let turnInterval = null;
 // 지금 판에 나와 있는 내 유닛의 번호(0,1,2). 한 번에 한 마리만 나온다.
 let activeSlot = null;
 let aimDir = null;         // 공격 조준 방향 (방향키로 정하고 스페이스로 쏜다)
-let attackFlash = null;    // 방금 쏜 사거리 (바로 지우지 않고 잠깐 남겨 사라지는 모습을 보여준다)
 let matchFinished = false; // 정상 종료로 대기실에 돌아가는 중인지 (상대 이탈과 구분)
 
 const loadingOverlay = document.getElementById("loading-overlay");
@@ -476,19 +474,8 @@ function renderAttackRange(battle) {
   mapEl.querySelectorAll(".range-box").forEach((el) => el.remove());
   if (!battle || battle.phase !== "playing") return;
 
-  // 공격이 나간 직후에는 조준했던 자리를 잠깐 남겨 서서히 사라지게 한다.
-  // (쏘자마자 뚝 사라지면 어디로 쐈는지 확인할 틈이 없다)
-  if (attackFlash) {
-    if (Date.now() < attackFlash.until) {
-      rangeBoxes(attackFlash.fromKey, attackFlash.tiles, attackFlash.spread).forEach((box) => {
-        box.classList.add("fading");
-        mapEl.appendChild(box);
-      });
-    }
-    return;
-  }
-
-  // 그 밖에는 화살표로 조준한 방향의 사거리만 보여준다. 벽이나 유닛이 있어도 사거리 전체를 보여준다.
+  // 화살표로 조준한 방향의 사거리를 보여준다. 쏜 뒤에도 조준이 남아 있으므로 계속 보인다.
+  // 벽이나 유닛이 있어도 사거리 전체를 보여준다.
   if (!aimDir) return;
 
   const from = activeTile(battle);
@@ -1465,7 +1452,7 @@ async function fireAttack() {
   const firedAt = Date.now();
   try {
     await update(ref(db, `rooms/${roomId}/battle`), updates);
-    aimDir = null;
+    // 조준은 풀지 않는다. 같은 방향으로 스페이스만 눌러 이어서 쏠 수 있고, 범위 표시도 그대로 남는다.
     // 총알은 쏜 순간부터 날아가고 있었으므로, 쓰기가 오간 시간만큼 당겨서 판정한다.
     if (shotId) resolveSpread(from, shotDir, spec.spread, shotId, Date.now() - firedAt);
     // 005의 튕김은 곧바로 들어가지 않고 1초 뒤에 옆 적에게 닿는다.
@@ -1475,11 +1462,6 @@ async function fireAttack() {
     }
     // 006처럼 자리에 남는 공격: 맞은 칸을 정해진 횟수만큼 계속 태운다.
     if (spec.dot && targets.length) scheduleDot(targets[0].key, spec.dot);
-    attackFlash = { fromKey: from, tiles: line, spread: !!spec.spread, until: Date.now() + ATTACK_FLASH_MS };
-    setTimeout(() => {
-      attackFlash = null;
-      if (currentRoom && currentRoom.battle) renderBattle(currentRoom);
-    }, ATTACK_FLASH_MS);
     startActionCooldown();
   } catch (err) {
     console.error("공격 실패:", err);
